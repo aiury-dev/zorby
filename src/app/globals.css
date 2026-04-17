@@ -1,22 +1,25 @@
 @import "tailwindcss";
 
+/* ── Base tokens ─────────────────────────────────────────────────────────── */
 :root {
-  --background: #f3f7ff;
-  --foreground: #0d1117;
+  --background: #f5f4f2;
+  --foreground: #0d0d0d;
   --surface: #ffffff;
   --surface-elevated: #ffffff;
-  --surface-muted: #f8fbff;
-  --border-default: #dde7f5;
-  --border-strong: #bfd0ea;
-  --fg-default: #0d1117;
-  --fg-muted: #526273;
-  --fg-subtle: #7f8fa5;
+  --surface-muted: #faf9f7;
+  --border-default: #e5e2dc;
+  --border-strong: #cdc9c1;
+  --fg-default: #0d0d0d;
+  --fg-muted: #5a5650;
+  --fg-subtle: #8a8680;
   --brand-500: #2563eb;
   --brand-600: #1e4fbb;
   --brand-700: #153a92;
   --success: #16a34a;
   --warning: #f59e0b;
   --danger: #dc2626;
+
+  /* Dashboard dark tokens */
   --navy: #0a0f1a;
   --navy-2: #0d1424;
   --navy-3: #111827;
@@ -66,13 +69,8 @@
   --font-mono: var(--font-jetbrains), "SFMono-Regular", Consolas, monospace;
 }
 
-* {
-  box-sizing: border-box;
-}
-
-html {
-  scroll-behavior: smooth;
-}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
 
 body {
   background: var(--background);
@@ -82,47 +80,17 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   font-feature-settings: "cv02", "cv03", "cv04", "cv11";
-  position: relative;
 }
 
-a {
-  color: inherit;
-  text-decoration: none;
-}
+a { color: inherit; text-decoration: none; }
+button, input, textarea, select { font: inherit; }
+button { cursor: pointer; }
+input, textarea, select { transition: border-color 180ms ease, box-shadow 180ms ease, background-color 180ms ease; }
+textarea { resize: vertical; }
+::placeholder { color: var(--fg-subtle); }
+::selection { background: color-mix(in srgb, var(--brand-500) 18%, white); }
 
-button,
-input,
-textarea,
-select {
-  font: inherit;
-}
-
-button {
-  cursor: pointer;
-}
-
-input,
-textarea,
-select {
-  transition:
-    border-color 180ms ease,
-    box-shadow 180ms ease,
-    background-color 180ms ease,
-    transform 180ms ease;
-}
-
-textarea {
-  resize: vertical;
-}
-
-::placeholder {
-  color: var(--fg-subtle);
-}
-
-::selection {
-  background: color-mix(in srgb, var(--brand-500) 18%, white);
-}
-
+/* Subtle noise overlay */
 body::before {
   content: "";
   position: fixed;
@@ -130,84 +98,330 @@ body::before {
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
   pointer-events: none;
   opacity: 0.24;
+  z-index: 0;
 }
 
+/* ── Dashboard component classes ─────────────────────────────────────────── */
 .z-card {
   background: var(--z-surface-2);
   border: 1px solid var(--z-border);
   border-radius: 14px;
   padding: 1.25rem 1.5rem;
 }
-
 .z-card-elevated {
   background: var(--z-surface-3);
   border: 1px solid var(--z-border-strong);
   border-radius: 14px;
   padding: 1.25rem 1.5rem;
 }
+.z-stat { font-size: 2rem; font-weight: 600; letter-spacing: -0.03em; color: var(--z-text); }
+.z-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; color: var(--z-text-faint); }
+.z-badge { display: inline-flex; align-items: center; gap: 4px; border-radius: 6px; padding: 2px 8px; font-size: 11px; font-weight: 600; }
+.z-badge-blue { background: var(--z-blue-dim); color: var(--z-blue); }
+.z-badge-green { background: var(--z-green-dim); color: var(--z-green); }
+.z-badge-amber { background: var(--z-amber-dim); color: var(--z-amber); }
+.z-badge-red { background: var(--z-red-dim); color: var(--z-red); }
 
-.z-stat {
-  font-size: 2rem;
-  font-weight: 600;
-  letter-spacing: -0.03em;
-  color: var(--z-text);
-}
-
-.z-label {
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--z-text-faint);
-}
-
-.z-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  border-radius: 6px;
-  padding: 2px 8px;
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.z-badge-blue {
-  background: var(--z-blue-dim);
-  color: var(--z-blue);
-}
-
-.z-badge-green {
-  background: var(--z-green-dim);
-  color: var(--z-green);
-}
-
-.z-badge-amber {
-  background: var(--z-amber-dim);
-  color: var(--z-amber);
-}
-
-.z-badge-red {
-  background: var(--z-red-dim);
-  color: var(--z-red);
-}
-
+/* ── PUBLIC BOOKING EXPERIENCE ───────────────────────────────────────────── */
 [data-booking] {
-  --bk-bg: #fafaf9;
-  --bk-surface: #ffffff;
-  --bk-border: #e7e5e4;
-  --bk-border-2: #d6d3d1;
-  --bk-text: #1c1917;
-  --bk-muted: #78716c;
-  --bk-faint: #a8a29e;
-  --bk-accent: #1664e8;
-  --bk-accent-dim: rgba(22, 100, 232, 0.1);
-  --bk-accent-fg: #ffffff;
+  /* Surface system */
+  --bk-bg:       #f5f4f1;
+  --bk-surface:  #ffffff;
+  --bk-surface2: #faf9f7;
+
+  /* Borders */
+  --bk-border:   #e8e5e0;
+  --bk-border2:  #d4d0c8;
+
+  /* Text */
+  --bk-text:  #181714;
+  --bk-muted: #6b6760;
+  --bk-faint: #a5a199;
+
+  /* Accent (overridden at runtime by brandPrimaryColor) */
+  --bk-accent:     #1664e8;
+  --bk-accent-dim: rgba(22, 100, 232, 0.12);
+  --bk-accent-fg:  #ffffff;
+
   background: var(--bk-bg);
   color: var(--bk-text);
-  font-family: var(--font-sans), "Segoe UI", system-ui, sans-serif;
+  font-family: var(--font-dm-sans), "Segoe UI", system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 
-[data-booking] ::selection {
-  background: var(--bk-accent-dim);
+[data-booking] ::selection { background: var(--bk-accent-dim); }
+
+/* ── Hero ── */
+[data-booking] .bk-hero { background: var(--bk-border); }
+
+[data-booking] .bk-hero-overlay {
+  background: linear-gradient(to bottom, rgba(0,0,0,0.15) 0%, rgba(0,0,0,0.45) 100%);
 }
+
+/* ── Logo frame ── */
+[data-booking] .bk-logo-frame {
+  filter: drop-shadow(0 4px 16px rgba(0,0,0,0.18));
+}
+[data-booking] .bk-logo-img {
+  border: 3px solid white;
+}
+
+/* ── Text helpers ── */
+[data-booking] .bk-text   { color: var(--bk-text); }
+[data-booking] .bk-muted  { color: var(--bk-muted); }
+[data-booking] .bk-faint  { color: var(--bk-faint); }
+
+/* ── Card ── */
+[data-booking] .bk-card {
+  background: var(--bk-surface);
+  border: 1px solid var(--bk-border);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.04), 0 4px 20px rgba(0,0,0,0.04);
+}
+
+/* ── Step badges ── */
+[data-booking] .bk-step-done {
+  background: var(--bk-accent);
+  color: var(--bk-accent-fg);
+}
+[data-booking] .bk-step-active {
+  background: var(--bk-accent);
+  color: var(--bk-accent-fg);
+}
+[data-booking] .bk-step-idle {
+  background: var(--bk-border);
+  color: var(--bk-faint);
+}
+
+/* ── Service cards ── */
+[data-booking] .bk-service-card {
+  background: var(--bk-surface2);
+  border: 1.5px solid var(--bk-border);
+}
+[data-booking] .bk-service-card:hover:not(.bk-service-card-selected) {
+  border-color: var(--bk-border2);
+  background: var(--bk-surface);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+}
+[data-booking] .bk-service-card-selected {
+  background: var(--bk-surface);
+  border-color: var(--bk-accent);
+  box-shadow: 0 0 0 1px var(--bk-accent), 0 4px 16px rgba(0,0,0,0.06);
+}
+
+/* ── Professional chips ── */
+[data-booking] .bk-pro-chip {
+  background: var(--bk-surface2);
+  border: 1.5px solid var(--bk-border);
+  color: var(--bk-text);
+}
+[data-booking] .bk-pro-chip:hover:not(.bk-pro-chip-selected) {
+  border-color: var(--bk-border2);
+}
+[data-booking] .bk-pro-chip-selected {
+  border-color: var(--bk-accent) !important;
+  background: var(--bk-accent-dim) !important;
+}
+
+/* ── Avatar ── */
+[data-booking] .bk-avatar {
+  background: var(--bk-accent-dim);
+  color: var(--bk-accent);
+}
+
+/* ── Date chips ── */
+[data-booking] .bk-date-chip {
+  background: var(--bk-surface);
+  border: 1.5px solid var(--bk-border);
+  color: var(--bk-text);
+  width: 60px;
+  height: 72px;
+  padding: 8px 4px;
+}
+[data-booking] .bk-date-chip:hover:not(.bk-date-chip-selected) {
+  border-color: var(--bk-border2);
+  background: var(--bk-surface2);
+}
+[data-booking] .bk-date-chip-selected {
+  box-shadow: 0 2px 12px rgba(0,0,0,0.12);
+}
+
+/* ── Scroll hide ── */
+[data-booking] .bk-scroll-hide {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+[data-booking] .bk-scroll-hide::-webkit-scrollbar { display: none; }
+
+/* ── Time slots ── */
+[data-booking] .bk-slot-chip {
+  background: var(--bk-surface);
+  border: 1.5px solid var(--bk-border);
+  color: var(--bk-text);
+}
+[data-booking] .bk-slot-chip:hover:not(.bk-slot-selected) {
+  border-color: var(--bk-accent);
+  color: var(--bk-accent);
+}
+[data-booking] .bk-slot-selected {
+  box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+}
+
+/* ── Schedule rows ── */
+[data-booking] .bk-schedule-row {
+  background: var(--bk-surface2);
+  border: 1px solid var(--bk-border);
+}
+
+/* ── No slots ── */
+[data-booking] .bk-no-slots {
+  background: var(--bk-surface2);
+  border: 1px dashed var(--bk-border2);
+  color: var(--bk-muted);
+}
+
+/* ── Summary box ── */
+[data-booking] .bk-summary-box {
+  background: var(--bk-surface2);
+  border: 1.5px solid var(--bk-border);
+}
+
+/* ── Dividers ── */
+[data-booking] .bk-divider-top { border-top: 1px solid var(--bk-border); }
+[data-booking] .bk-divider-bottom { border-bottom: 1px solid var(--bk-border); }
+
+/* ── Rating badge ── */
+[data-booking] .bk-rating-badge {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+/* ── Rating bar ── */
+[data-booking] .bk-bar-bg {
+  background: var(--bk-border);
+}
+
+/* ── Reviews ── */
+[data-booking] .bk-review-card {
+  background: var(--bk-surface2);
+  border: 1px solid var(--bk-border);
+}
+[data-booking] .bk-show-more {
+  background: var(--bk-surface2);
+  border: 1px solid var(--bk-border);
+}
+[data-booking] .bk-show-more:hover {
+  background: var(--bk-accent-dim);
+  border-color: var(--bk-accent);
+}
+
+/* ── Input fields ── */
+[data-booking] .bk-field-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--bk-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+[data-booking] .bk-input {
+  background: var(--bk-surface2);
+  border: 1.5px solid var(--bk-border);
+  color: var(--bk-text);
+}
+[data-booking] .bk-input:focus {
+  outline: none;
+  border-color: var(--bk-accent);
+  background: var(--bk-surface);
+  box-shadow: 0 0 0 3px var(--bk-accent-dim);
+}
+[data-booking] .bk-select {
+  background: var(--bk-surface2);
+  border: 1.5px solid var(--bk-border);
+  color: var(--bk-text);
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23a5a199' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 36px;
+}
+[data-booking] .bk-select:focus {
+  outline: none;
+  border-color: var(--bk-accent);
+  box-shadow: 0 0 0 3px var(--bk-accent-dim);
+}
+
+/* ── Consent ── */
+[data-booking] .bk-consent {
+  background: var(--bk-surface2);
+  border: 1px solid var(--bk-border);
+}
+
+/* ── Policy ── */
+[data-booking] .bk-policy {
+  background: var(--bk-surface2);
+  border: 1px solid var(--bk-border);
+}
+
+/* ── Error ── */
+[data-booking] .bk-error {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #b91c1c;
+}
+
+/* ── Submit button ── */
+[data-booking] .bk-submit {
+  letter-spacing: 0.01em;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.2);
+}
+[data-booking] .bk-submit:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.25);
+}
+[data-booking] .bk-submit:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+/* ── Calendar buttons ── */
+[data-booking] .bk-cal-btn {
+  background: var(--bk-surface);
+  border: 1.5px solid var(--bk-border);
+  color: var(--bk-text);
+  transition: all 160ms ease;
+}
+[data-booking] .bk-cal-btn:hover {
+  border-color: var(--bk-border2);
+  background: var(--bk-surface2);
+}
+
+/* ── Mobile tabs ── */
+[data-booking] .bk-mobile-tabs {
+  background: var(--bk-surface);
+  border: 1.5px solid var(--bk-border);
+}
+[data-booking] .bk-mobile-tab {
+  color: var(--bk-muted);
+  transition: all 160ms ease;
+}
+[data-booking] .bk-mobile-tab-active {
+  background: var(--bk-accent);
+  color: #ffffff;
+}
+
+/* ── Mobile CTA bar ── */
+[data-booking] .bk-mobile-cta-bar {
+  background: linear-gradient(to top, var(--bk-bg) 70%, transparent);
+}
+
+/* ── Spinner ── */
+[data-booking] .bk-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255,255,255,0.35);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: bk-spin 0.7s linear infinite;
+}
+@keyframes bk-spin { to { transform: rotate(360deg); } }
