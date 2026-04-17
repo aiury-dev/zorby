@@ -7,6 +7,8 @@ import {
   CheckCircle2,
   LayoutDashboard,
   Sparkles,
+  Store,
+  UserRoundSearch,
 } from "lucide-react";
 
 const highlights = [
@@ -69,20 +71,62 @@ export default function Home() {
               </p>
             </div>
 
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <Link
-                href="/cadastro"
-                className="inline-flex h-14 items-center justify-center gap-2 rounded-[18px] bg-[color:var(--color-brand-500)] px-7 text-sm font-semibold text-white shadow-[0_18px_40px_rgba(37,99,235,0.24)] transition hover:bg-[color:var(--color-brand-600)]"
-              >
-                Criar conta grátis
-                <ArrowRight className="size-4" />
-              </Link>
-              <Link
-                href="/login"
-                className="inline-flex h-14 items-center justify-center rounded-[18px] border border-[color:var(--color-border-default)] bg-white/92 px-7 text-sm font-semibold text-[color:var(--color-fg-default)] shadow-[var(--shadow-sm)] transition hover:border-[color:var(--color-border-strong)] hover:bg-white"
-              >
-                Entrar no painel
-              </Link>
+            <div className="grid gap-3 lg:grid-cols-2">
+              <article className="rounded-[24px] border border-[rgba(37,99,235,0.14)] bg-white/88 p-4 shadow-[var(--shadow-sm)] backdrop-blur">
+                <div className="flex items-start gap-3">
+                  <div className="flex size-11 items-center justify-center rounded-2xl bg-blue-50 text-[color:var(--color-brand-500)]">
+                    <Store className="size-5" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-[color:var(--color-fg-default)]">
+                      Sou empresa ou profissional
+                    </p>
+                    <p className="mt-1 text-sm leading-6 text-[color:var(--color-fg-muted)]">
+                      Quero usar o Zorby para operar agenda, serviços, clientes e cobrança.
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+                  <Link
+                    href="/cadastro"
+                    className="inline-flex h-12 items-center justify-center gap-2 rounded-[18px] bg-[color:var(--color-brand-500)] px-6 text-sm font-semibold text-white shadow-[0_18px_40px_rgba(37,99,235,0.24)] transition hover:bg-[color:var(--color-brand-600)]"
+                  >
+                    Criar conta grátis
+                    <ArrowRight className="size-4" />
+                  </Link>
+                  <Link
+                    href="/login"
+                    className="inline-flex h-12 items-center justify-center rounded-[18px] border border-[color:var(--color-border-default)] bg-white/92 px-6 text-sm font-semibold text-[color:var(--color-fg-default)] shadow-[var(--shadow-sm)] transition hover:border-[color:var(--color-border-strong)] hover:bg-white"
+                  >
+                    Entrar no painel
+                  </Link>
+                </div>
+              </article>
+
+              <article className="rounded-[24px] border border-[rgba(15,23,42,0.08)] bg-[linear-gradient(180deg,#ffffff_0%,#f8fbff_100%)] p-4 shadow-[var(--shadow-sm)] backdrop-blur">
+                <div className="flex items-start gap-3">
+                  <div className="flex size-11 items-center justify-center rounded-2xl bg-slate-100 text-[color:var(--color-fg-default)]">
+                    <UserRoundSearch className="size-5" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-[color:var(--color-fg-default)]">
+                      Sou cliente e quero agendar
+                    </p>
+                    <p className="mt-1 text-sm leading-6 text-[color:var(--color-fg-muted)]">
+                      Já tenho o link da empresa e quero escolher um horário disponível.
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-4">
+                  <Link
+                    href="/agendar"
+                    className="inline-flex h-12 items-center justify-center gap-2 rounded-[18px] border border-[color:var(--color-border-default)] bg-white px-6 text-sm font-semibold text-[color:var(--color-fg-default)] shadow-[var(--shadow-sm)] transition hover:border-[color:var(--color-border-strong)] hover:bg-slate-50"
+                  >
+                    Ir para agendamento
+                    <ArrowRight className="size-4" />
+                  </Link>
+                </div>
+              </article>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-3">

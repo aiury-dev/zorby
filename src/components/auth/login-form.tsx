@@ -4,7 +4,14 @@ import { signIn } from "next-auth/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { ArrowRight, LockKeyhole, Mail, ShieldCheck } from "lucide-react";
+import {
+  ArrowRight,
+  CalendarSearch,
+  LockKeyhole,
+  Mail,
+  ShieldCheck,
+  Store,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -94,7 +101,7 @@ export function LoginForm(props: { callbackUrl?: string; googleEnabled?: boolean
         <div className="mx-auto w-full max-w-md">
           <div className="space-y-3">
             <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[color:var(--color-fg-muted)]">
-              Acesso ao painel
+              Acesso de empresa
             </p>
             <h1 className="text-4xl font-semibold tracking-tight text-[color:var(--color-fg-default)]">
               Entrar no Zorby
@@ -104,9 +111,35 @@ export function LoginForm(props: { callbackUrl?: string; googleEnabled?: boolean
             </p>
           </div>
 
+          <div className="mt-6 rounded-[24px] border border-[color:var(--color-border-default)] bg-[linear-gradient(180deg,#ffffff_0%,#f8fbff_100%)] p-4">
+            <div className="flex items-start gap-3">
+              <div className="flex size-10 items-center justify-center rounded-2xl bg-blue-50 text-[color:var(--color-brand-500)]">
+                <Store className="size-4" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-[color:var(--color-fg-default)]">
+                  Esta área é para empresas e profissionais
+                </p>
+                <p className="mt-1 text-sm leading-6 text-[color:var(--color-fg-muted)]">
+                  Se você é cliente final e quer reservar um horário, use a entrada de agendamento.
+                </p>
+                <Link
+                  href="/agendar"
+                  className="mt-3 inline-flex items-center gap-2 text-sm font-semibold text-[color:var(--color-brand-500)]"
+                >
+                  <CalendarSearch className="size-4" />
+                  Quero agendar um serviço
+                </Link>
+              </div>
+            </div>
+          </div>
+
           <form className="mt-8 space-y-4" onSubmit={handleCredentialsSignIn}>
             <div className="space-y-2">
-              <label className="text-sm font-medium text-[color:var(--color-fg-default)]" htmlFor="login-email">
+              <label
+                className="text-sm font-medium text-[color:var(--color-fg-default)]"
+                htmlFor="login-email"
+              >
                 E-mail
               </label>
               <Input
@@ -121,7 +154,10 @@ export function LoginForm(props: { callbackUrl?: string; googleEnabled?: boolean
             </div>
 
             <div className="space-y-2">
-              <label className="text-sm font-medium text-[color:var(--color-fg-default)]" htmlFor="login-password">
+              <label
+                className="text-sm font-medium text-[color:var(--color-fg-default)]"
+                htmlFor="login-password"
+              >
                 Senha
               </label>
               <Input
@@ -135,7 +171,10 @@ export function LoginForm(props: { callbackUrl?: string; googleEnabled?: boolean
               />
             </div>
 
-            <Button className="mt-2 h-12 w-full rounded-2xl text-sm font-semibold shadow-[0_14px_30px_rgba(22,100,232,0.22)]" disabled={isPending}>
+            <Button
+              className="mt-2 h-12 w-full rounded-2xl text-sm font-semibold shadow-[0_14px_30px_rgba(22,100,232,0.22)]"
+              disabled={isPending}
+            >
               <span className="inline-flex items-center gap-2">
                 {isPending ? "Entrando..." : "Entrar com e-mail e senha"}
                 {!isPending ? <ArrowRight className="size-4" /> : null}
@@ -176,7 +215,9 @@ export function LoginForm(props: { callbackUrl?: string; googleEnabled?: boolean
                   <LockKeyhole className="size-4" />
                 </div>
                 <div>
-                  <p className="font-medium text-[color:var(--color-fg-default)]">Login com Google indisponível</p>
+                  <p className="font-medium text-[color:var(--color-fg-default)]">
+                    Login com Google indisponível
+                  </p>
                   <p className="mt-1 leading-6">
                     Ative o Google OAuth nas variáveis de ambiente para liberar essa opção.
                   </p>

@@ -30,27 +30,31 @@ const statusMeta: Record<
 > = {
   PENDING: {
     label: "Pendente",
-    badgeClassName: "bg-amber-50 text-amber-700 ring-1 ring-amber-100",
+    badgeClassName:
+      "bg-[var(--z-amber-dim)] text-[var(--z-amber)] ring-1 ring-[rgba(251,191,36,0.18)]",
     icon: Clock3,
   },
   CONFIRMED: {
     label: "Confirmado",
-    badgeClassName: "bg-blue-50 text-blue-700 ring-1 ring-blue-100",
+    badgeClassName:
+      "bg-[var(--z-blue-dim)] text-[var(--z-blue)] ring-1 ring-[rgba(79,142,247,0.18)]",
     icon: CheckCircle2,
   },
   COMPLETED: {
     label: "Concluído",
-    badgeClassName: "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100",
+    badgeClassName:
+      "bg-[var(--z-green-dim)] text-[var(--z-green)] ring-1 ring-[rgba(52,211,153,0.18)]",
     icon: CheckCircle2,
   },
   CANCELLED: {
     label: "Cancelado",
-    badgeClassName: "bg-rose-50 text-rose-700 ring-1 ring-rose-100",
+    badgeClassName:
+      "bg-[var(--z-red-dim)] text-[var(--z-red)] ring-1 ring-[rgba(248,113,113,0.18)]",
     icon: XCircle,
   },
   NO_SHOW: {
     label: "Não compareceu",
-    badgeClassName: "bg-slate-100 text-slate-700 ring-1 ring-slate-200",
+    badgeClassName: "bg-white/8 text-slate-300 ring-1 ring-white/10",
     icon: XCircle,
   },
 };
@@ -122,7 +126,7 @@ export default async function AgendaPage({ searchParams }: AgendaPageProps) {
 
   return (
     <div className="space-y-8">
-      <header className="overflow-hidden rounded-[32px] border border-[color:var(--color-border-default)] bg-[linear-gradient(135deg,rgba(15,23,42,0.96)_0%,rgba(29,78,216,0.92)_100%)] p-6 text-white shadow-[0_24px_70px_rgba(15,23,42,0.18)] md:p-8">
+      <header className="overflow-hidden rounded-[32px] border border-white/10 bg-[linear-gradient(135deg,rgba(15,23,42,0.96)_0%,rgba(29,78,216,0.92)_100%)] p-6 text-white shadow-[0_24px_70px_rgba(15,23,42,0.18)] md:p-8">
         <div className="flex flex-col gap-8 xl:flex-row xl:items-end xl:justify-between">
           <div className="max-w-3xl space-y-4">
             <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/10 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.26em] text-white/72">
@@ -187,7 +191,7 @@ export default async function AgendaPage({ searchParams }: AgendaPageProps) {
             </Link>
             <Link
               href={`/dashboard/agenda?date=${today}`}
-              className="inline-flex items-center gap-2 rounded-full border border-white/16 bg-white px-4 py-2.5 text-sm font-semibold text-slate-900 transition hover:bg-slate-100"
+              className="inline-flex items-center gap-2 rounded-full border border-[rgba(79,142,247,0.32)] bg-[var(--z-blue)] px-4 py-2.5 text-sm font-semibold text-white shadow-[0_14px_28px_rgba(79,142,247,0.18)] transition hover:bg-[var(--z-blue-hover)]"
             >
               Hoje
             </Link>
@@ -203,16 +207,16 @@ export default async function AgendaPage({ searchParams }: AgendaPageProps) {
       </header>
 
       {appointments.length === 0 ? (
-        <section className="rounded-[32px] border border-dashed border-[color:var(--color-border-default)] bg-[color:var(--color-surface-muted)] p-8 text-center">
+        <section className="rounded-[32px] border border-dashed border-white/10 bg-[var(--z-surface)] p-8 text-center shadow-[0_18px_40px_rgba(5,10,25,0.16)]">
           <div className="mx-auto flex max-w-md flex-col items-center gap-4">
-            <div className="rounded-2xl bg-white p-3 shadow-[0_12px_28px_rgba(15,23,42,0.06)]">
-              <CalendarRange className="size-6 text-[color:var(--color-brand-500)]" />
+            <div className="rounded-2xl border border-white/8 bg-[var(--z-surface-3)] p-3 shadow-[0_12px_28px_rgba(5,10,25,0.12)]">
+              <CalendarRange className="size-6 text-[var(--z-blue)]" />
             </div>
             <div className="space-y-2">
-              <h2 className="text-xl font-semibold text-[color:var(--color-fg-default)]">
+              <h2 className="text-xl font-semibold text-white">
                 Nenhum horário reservado nesta data
               </h2>
-              <p className="text-sm leading-7 text-[color:var(--color-fg-muted)]">
+              <p className="text-sm leading-7 text-slate-400">
                 Quando novos clientes escolherem um horário disponível, eles aparecerão aqui com
                 status e ações rápidas.
               </p>
@@ -222,20 +226,26 @@ export default async function AgendaPage({ searchParams }: AgendaPageProps) {
       ) : null}
 
       {[
-        { title: "Próximos atendimentos", subtitle: "O que ainda vai acontecer hoje", items: upcomingAppointments },
-        { title: "Atendimentos finalizados", subtitle: "Tudo que já passou nesta data", items: pastAppointments },
+        {
+          title: "Próximos atendimentos",
+          subtitle: "O que ainda vai acontecer hoje",
+          items: upcomingAppointments,
+        },
+        {
+          title: "Atendimentos finalizados",
+          subtitle: "Tudo que já passou nesta data",
+          items: pastAppointments,
+        },
       ]
         .filter((group) => group.items.length > 0)
         .map((group) => (
           <section key={group.title} className="space-y-4">
             <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
               <div>
-                <h2 className="text-2xl font-semibold text-[color:var(--color-fg-default)]">
-                  {group.title}
-                </h2>
-                <p className="mt-1 text-sm text-[color:var(--color-fg-muted)]">{group.subtitle}</p>
+                <h2 className="text-2xl font-semibold text-white">{group.title}</h2>
+                <p className="mt-1 text-sm text-slate-400">{group.subtitle}</p>
               </div>
-              <p className="text-sm font-medium text-[color:var(--color-fg-muted)]">
+              <p className="text-sm font-medium text-slate-500">
                 {group.items.length} {group.items.length === 1 ? "registro" : "registros"}
               </p>
             </div>
@@ -248,20 +258,20 @@ export default async function AgendaPage({ searchParams }: AgendaPageProps) {
                 return (
                   <article
                     key={appointment.id}
-                    className="overflow-hidden rounded-[30px] border border-[color:var(--color-border-default)] bg-white shadow-[0_20px_50px_rgba(15,23,42,0.04)]"
+                    className="overflow-hidden rounded-[30px] border border-white/8 bg-[var(--z-surface)] shadow-[0_20px_50px_rgba(5,10,25,0.16)]"
                   >
-                    <div className="border-b border-[color:var(--color-border-default)] px-5 py-4 md:px-6">
+                    <div className="border-b border-white/8 px-5 py-4 md:px-6">
                       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                         <div className="space-y-3">
                           <div className="flex flex-wrap items-center gap-3">
-                            <div className="flex size-11 items-center justify-center rounded-2xl bg-[color:var(--color-surface-muted)] text-[color:var(--color-brand-500)]">
+                            <div className="flex size-11 items-center justify-center rounded-2xl bg-[var(--z-surface-3)] text-[var(--z-blue)]">
                               <UserRound className="size-5" />
                             </div>
                             <div>
-                              <h3 className="text-lg font-semibold text-[color:var(--color-fg-default)]">
+                              <h3 className="text-lg font-semibold text-white">
                                 {appointment.customerNameSnapshot}
                               </h3>
-                              <p className="text-sm text-[color:var(--color-fg-muted)]">
+                              <p className="text-sm text-slate-400">
                                 {appointment.serviceNameSnapshot} com {appointment.professional.displayName}
                                 {appointment.professional.roleLabel
                                   ? ` • ${appointment.professional.roleLabel}`
@@ -276,18 +286,18 @@ export default async function AgendaPage({ searchParams }: AgendaPageProps) {
                               <StatusIcon className="size-3.5" />
                               {status.label}
                             </span>
-                            <span className="rounded-full border border-[color:var(--color-border-default)] px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-[color:var(--color-fg-muted)]">
+                            <span className="rounded-full border border-white/10 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
                               {appointment.source}
                             </span>
                           </div>
                         </div>
 
                         <div className="grid gap-3 sm:grid-cols-3 lg:min-w-[470px]">
-                          <div className="rounded-[22px] bg-[color:var(--color-surface-muted)] px-4 py-3">
-                            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[color:var(--color-fg-muted)]">
+                          <div className="rounded-[22px] bg-[var(--z-surface-3)] px-4 py-3">
+                            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
                               Horário
                             </p>
-                            <p className="mt-2 text-sm font-semibold text-[color:var(--color-fg-default)]">
+                            <p className="mt-2 text-sm font-semibold text-white">
                               {formatAppointmentPeriod(
                                 appointment.startsAtUtc,
                                 appointment.endsAtUtc,
@@ -295,19 +305,19 @@ export default async function AgendaPage({ searchParams }: AgendaPageProps) {
                               )}
                             </p>
                           </div>
-                          <div className="rounded-[22px] bg-[color:var(--color-surface-muted)] px-4 py-3">
-                            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[color:var(--color-fg-muted)]">
+                          <div className="rounded-[22px] bg-[var(--z-surface-3)] px-4 py-3">
+                            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
                               Contato
                             </p>
-                            <p className="mt-2 text-sm font-semibold text-[color:var(--color-fg-default)]">
+                            <p className="mt-2 text-sm font-semibold text-white">
                               {formatPhone(appointment.customerPhoneSnapshot)}
                             </p>
                           </div>
-                          <div className="rounded-[22px] bg-[color:var(--color-surface-muted)] px-4 py-3">
-                            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[color:var(--color-fg-muted)]">
+                          <div className="rounded-[22px] bg-[var(--z-surface-3)] px-4 py-3">
+                            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
                               Valor
                             </p>
-                            <p className="mt-2 text-sm font-semibold text-[color:var(--color-fg-default)]">
+                            <p className="mt-2 text-sm font-semibold text-white">
                               {new Intl.NumberFormat("pt-BR", {
                                 style: "currency",
                                 currency: "BRL",
@@ -320,7 +330,7 @@ export default async function AgendaPage({ searchParams }: AgendaPageProps) {
 
                     <div className="flex flex-col gap-4 px-5 py-4 md:px-6 lg:flex-row lg:items-center lg:justify-between">
                       <div className="max-w-2xl">
-                        <p className="text-sm text-[color:var(--color-fg-muted)]">
+                        <p className="text-sm text-slate-400">
                           Atualize o status do horário conforme o atendimento evolui. Isso mantém o
                           histórico do cliente e os relatórios sempre consistentes.
                         </p>
@@ -339,8 +349,8 @@ export default async function AgendaPage({ searchParams }: AgendaPageProps) {
                               className={[
                                 "rounded-full border px-4 py-2.5 text-sm font-semibold transition",
                                 appointment.status === action.status
-                                  ? "border-transparent bg-[color:var(--color-brand-500)] text-white shadow-[0_14px_28px_rgba(37,99,235,0.18)]"
-                                  : "border-[color:var(--color-border-default)] bg-white text-[color:var(--color-fg-default)] hover:bg-[color:var(--color-surface-muted)]",
+                                  ? "border-transparent bg-[var(--z-blue)] text-white shadow-[0_14px_28px_rgba(79,142,247,0.18)]"
+                                  : "border-white/10 bg-[var(--z-surface-3)] text-slate-200 hover:bg-white/6",
                               ].join(" ")}
                             >
                               {action.label}
