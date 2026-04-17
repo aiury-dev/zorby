@@ -1,6 +1,5 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
-import { createServiceAction } from "@/server/actions/dashboard";
+import { continueToAvailabilityAction, createServiceAction } from "@/server/actions/dashboard";
 import { prisma } from "@/lib/prisma";
 import { getCurrentMembership } from "@/server/services/me";
 import { getOnboardingStepPath } from "@/server/services/onboarding";
@@ -80,12 +79,11 @@ export default async function OnboardingServicesPage({ searchParams }: Onboardin
         </div>
 
         {services.length ? (
-          <Link
-            href="/onboarding/availability"
-            className="inline-flex h-11 items-center rounded-full border border-[color:var(--color-border-default)] px-5 text-sm font-semibold text-[color:var(--color-fg-default)]"
-          >
-            Continuar para disponibilidade
-          </Link>
+          <form action={continueToAvailabilityAction}>
+            <button className="inline-flex h-11 items-center rounded-full border border-[color:var(--color-border-default)] px-5 text-sm font-semibold text-[color:var(--color-fg-default)]">
+              Continuar para disponibilidade
+            </button>
+          </form>
         ) : null}
       </div>
     </main>

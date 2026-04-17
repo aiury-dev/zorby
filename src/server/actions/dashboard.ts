@@ -115,6 +115,39 @@ export async function createServiceAction(formData: FormData) {
   }
 }
 
+export async function continueToAvailabilityAction() {
+  try {
+    const membership = await requireMembership();
+
+    const servicesCount = await prisma.service.count({
+      where: {
+        businessId: membership.businessId,
+        deletedAt: null,
+      },
+    });
+
+    if (!servicesCount) {
+      await redirectBackWithError(
+        "Cadastre pelo menos um serviço antes de continuar.",
+        "/onboarding/services",
+      );
+    }
+
+    if (membership.business.onboardingStep === OnboardingStep.SERVICES) {
+      await prisma.business.update({
+        where: { id: membership.businessId },
+        data: { onboardingStep: OnboardingStep.AVAILABILITY },
+      });
+    }
+
+    redirect("/onboarding/availability");
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Não foi possível continuar para disponibilidade.";
+    await redirectBackWithError(message, "/onboarding/services");
+  }
+}
+
 export async function createProfessionalAction(formData: FormData) {
   const membership = await requireMembership();
   const subscription = await getCurrentSubscription(membership.businessId);
