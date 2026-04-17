@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import {
   AppointmentStatus,
@@ -27,6 +28,18 @@ async function requireMembership() {
   }
 
   return membership;
+}
+
+async function redirectBackWithError(message: string, fallbackPath: string) {
+  const referer = (await headers()).get("referer");
+
+  try {
+    const url = new URL(referer ?? fallbackPath);
+    url.searchParams.set("error", message);
+    redirect(`${url.pathname}${url.search}${url.hash}`);
+  } catch {
+    redirect(`${fallbackPath}?error=${encodeURIComponent(message)}`);
+  }
 }
 
 export async function saveBusinessStep(formData: FormData) {
@@ -63,37 +76,43 @@ export async function saveBusinessStep(formData: FormData) {
 }
 
 export async function createServiceAction(formData: FormData) {
-  const membership = await requireMembership();
-  const subscription = await getCurrentSubscription(membership.businessId);
-  await assertServicesLimit(membership.businessId, subscription?.plan.maxServices ?? null);
+  try {
+    const membership = await requireMembership();
+    const subscription = await getCurrentSubscription(membership.businessId);
+    await assertServicesLimit(membership.businessId, subscription?.plan.maxServices ?? null);
 
-  const name = String(formData.get("name") ?? "").trim();
-  const description = String(formData.get("description") ?? "").trim();
-  const durationMinutes = Number(formData.get("durationMinutes") ?? 30);
-  const priceInReais = Number(formData.get("price") ?? 0);
-  const colorHex = String(formData.get("colorHex") ?? "#1664E8");
+    const name = String(formData.get("name") ?? "").trim();
+    const description = String(formData.get("description") ?? "").trim();
+    const durationMinutes = Number(formData.get("durationMinutes") ?? 30);
+    const priceInReais = Number(formData.get("price") ?? 0);
+    const colorHex = String(formData.get("colorHex") ?? "#1664E8");
 
-  await prisma.service.create({
-    data: {
-      businessId: membership.businessId,
-      name,
-      slug: await generateUniqueBusinessSlug(`${membership.business.slug}-${name}`),
-      description: description || null,
-      durationMinutes,
-      priceCents: Math.round(priceInReais * 100),
-      colorHex,
-    },
-  });
-
-  if (membership.business.onboardingStep === OnboardingStep.SERVICES) {
-    await prisma.business.update({
-      where: { id: membership.businessId },
-      data: { onboardingStep: OnboardingStep.AVAILABILITY },
+    await prisma.service.create({
+      data: {
+        businessId: membership.businessId,
+        name,
+        slug: await generateUniqueBusinessSlug(`${membership.business.slug}-${name}`),
+        description: description || null,
+        durationMinutes,
+        priceCents: Math.round(priceInReais * 100),
+        colorHex,
+      },
     });
-  }
 
-  revalidatePath("/dashboard/servicos");
-  revalidatePath("/onboarding/services");
+    if (membership.business.onboardingStep === OnboardingStep.SERVICES) {
+      await prisma.business.update({
+        where: { id: membership.businessId },
+        data: { onboardingStep: OnboardingStep.AVAILABILITY },
+      });
+    }
+
+    revalidatePath("/dashboard/servicos");
+    revalidatePath("/onboarding/services");
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Não foi possível salvar o serviço.";
+    await redirectBackWithError(message, "/onboarding/services");
+  }
 }
 
 export async function createProfessionalAction(formData: FormData) {
