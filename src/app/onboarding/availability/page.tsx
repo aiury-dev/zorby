@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { saveAvailabilityStep } from "@/server/actions/dashboard";
 import { prisma } from "@/lib/prisma";
+import { ensureDefaultProfessionalForBusiness } from "@/server/services/business";
 import { getCurrentMembership } from "@/server/services/me";
 import { getOnboardingStepPath } from "@/server/services/onboarding";
 
@@ -25,13 +26,22 @@ export default async function OnboardingAvailabilityPage() {
     redirect(getOnboardingStepPath(membership.business.onboardingStep));
   }
 
-  const professionals = await prisma.professional.findMany({
+  let professionals = await prisma.professional.findMany({
     where: { businessId: membership.businessId, deletedAt: null },
     orderBy: { createdAt: "asc" },
   });
 
   if (!professionals.length) {
-    redirect("/onboarding/services");
+    await ensureDefaultProfessionalForBusiness({
+      businessId: membership.businessId,
+      businessSlug: membership.business.slug,
+      userId: membership.userId,
+    });
+
+    professionals = await prisma.professional.findMany({
+      where: { businessId: membership.businessId, deletedAt: null },
+      orderBy: { createdAt: "asc" },
+    });
   }
 
   return (

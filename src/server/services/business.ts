@@ -71,6 +71,16 @@ export async function createBusinessForUser(input: {
       },
     });
 
+    await tx.professional.create({
+      data: {
+        businessId: business.id,
+        displayName: input.userName.trim() || input.businessName,
+        publicDisplayName: input.userName.trim() || input.businessName,
+        email: input.userEmail,
+        slug: await generateUniqueBusinessSlug(`${business.slug}-${input.userName || "profissional"}`),
+      },
+    });
+
     if (starterPlan) {
       const now = new Date();
       const trialEnd = new Date(now.getTime() + starterPlan.trialDays * 24 * 60 * 60 * 1000);
@@ -91,6 +101,47 @@ export async function createBusinessForUser(input: {
     }
 
     return business;
+  });
+}
+
+export async function ensureDefaultProfessionalForBusiness(input: {
+  businessId: string;
+  businessSlug: string;
+  userId: string;
+}) {
+  const existingProfessional = await prisma.professional.findFirst({
+    where: {
+      businessId: input.businessId,
+      deletedAt: null,
+    },
+    select: {
+      id: true,
+    },
+  });
+
+  if (existingProfessional) {
+    return existingProfessional;
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: input.userId },
+    select: {
+      name: true,
+      email: true,
+    },
+  });
+
+  return prisma.professional.create({
+    data: {
+      businessId: input.businessId,
+      displayName: user?.name?.trim() || "Profissional principal",
+      publicDisplayName: user?.name?.trim() || "Profissional principal",
+      email: user?.email ?? null,
+      slug: await generateUniqueBusinessSlug(`${input.businessSlug}-${user?.name || "profissional"}`),
+    },
+    select: {
+      id: true,
+    },
   });
 }
 
