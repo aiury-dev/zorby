@@ -42,6 +42,34 @@ async function redirectBackWithError(message: string, fallbackPath: string) {
   }
 }
 
+function parseMinutesInput(value: FormDataEntryValue | null, fallback: number) {
+  const rawValue = String(value ?? "").trim();
+
+  if (!rawValue) {
+    return fallback;
+  }
+
+  if (rawValue.includes(":")) {
+    const [hoursRaw, minutesRaw] = rawValue.split(":");
+    const hours = Number(hoursRaw);
+    const minutes = Number(minutesRaw);
+
+    if (
+      Number.isFinite(hours) &&
+      Number.isFinite(minutes) &&
+      hours >= 0 &&
+      hours <= 23 &&
+      minutes >= 0 &&
+      minutes <= 59
+    ) {
+      return hours * 60 + minutes;
+    }
+  }
+
+  const numericValue = Number(rawValue);
+  return Number.isFinite(numericValue) ? numericValue : fallback;
+}
+
 export async function saveBusinessStep(formData: FormData) {
   const membership = await requireMembership();
 
@@ -253,8 +281,8 @@ export async function saveAvailabilityStep(formData: FormData) {
   const membership = await requireMembership();
   const professionalId = String(formData.get("professionalId") ?? "");
   const dayOfWeek = Number(formData.get("dayOfWeek") ?? 1);
-  const startMinutes = Number(formData.get("startMinutes") ?? 540);
-  const endMinutes = Number(formData.get("endMinutes") ?? 1080);
+  const startMinutes = parseMinutesInput(formData.get("startMinutes"), 540);
+  const endMinutes = parseMinutesInput(formData.get("endMinutes"), 1080);
   const slotIntervalMinutes = Number(formData.get("slotIntervalMinutes") ?? 30);
 
   await prisma.availability.create({
@@ -281,8 +309,8 @@ export async function createAvailabilityAction(formData: FormData) {
   const membership = await requireMembership();
   const professionalId = String(formData.get("professionalId") ?? "");
   const dayOfWeek = Number(formData.get("dayOfWeek") ?? 0);
-  const startMinutes = Number(formData.get("startMinutes") ?? 540);
-  const endMinutes = Number(formData.get("endMinutes") ?? 1080);
+  const startMinutes = parseMinutesInput(formData.get("startMinutes"), 540);
+  const endMinutes = parseMinutesInput(formData.get("endMinutes"), 1080);
   const slotIntervalMinutes = Number(formData.get("slotIntervalMinutes") ?? 30);
   const capacity = Number(formData.get("capacity") ?? 1);
 

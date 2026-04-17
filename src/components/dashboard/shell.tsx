@@ -44,7 +44,7 @@ export function DashboardShell(props: {
   const pathname = usePathname();
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,#dbeafe_0%,transparent_22%),linear-gradient(180deg,#f8fafc_0%,#eef4ff_100%)]">
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,#dbeafe_0%,transparent_24%),linear-gradient(180deg,#f8fafc_0%,#eef4ff_100%)]">
       <div className="mx-auto max-w-[1480px] px-4 py-4 md:px-6 md:py-6">
         <div className="mb-4 rounded-[28px] border border-white/70 bg-white/90 p-4 shadow-[0_18px_40px_rgba(15,23,42,0.08)] backdrop-blur lg:hidden">
           <div className="flex items-start justify-between gap-4">
@@ -55,7 +55,9 @@ export function DashboardShell(props: {
               <h2 className="mt-2 text-2xl font-semibold text-[color:var(--color-fg-default)]">
                 {props.businessName}
               </h2>
-              <p className="mt-1 text-sm text-[color:var(--color-fg-muted)]">{props.subscriptionLabel}</p>
+              <p className="mt-1 text-sm text-[color:var(--color-fg-muted)]">
+                {props.subscriptionLabel}
+              </p>
             </div>
             <div className="rounded-2xl bg-[linear-gradient(135deg,#0f172a_0%,#1d4ed8_100%)] p-3 text-white">
               <Sparkles className="size-5" />
@@ -91,8 +93,12 @@ export function DashboardShell(props: {
             <div className="border-b border-white/10 px-6 py-6">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.28em] text-white/45">Zorby</p>
-                  <h2 className="mt-3 text-[1.8rem] font-semibold leading-tight">{props.businessName}</h2>
+                  <p className="text-xs font-semibold uppercase tracking-[0.28em] text-white/45">
+                    Zorby
+                  </p>
+                  <h2 className="mt-3 text-[1.8rem] font-semibold leading-tight">
+                    {props.businessName}
+                  </h2>
                   <p className="mt-2 text-sm text-white/65">{props.subscriptionLabel}</p>
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-white/10 p-3">

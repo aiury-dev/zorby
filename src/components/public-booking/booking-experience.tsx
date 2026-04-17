@@ -92,7 +92,7 @@ function buildDateOptions(timezone: string) {
 export function BookingExperience(props: BookingExperienceProps) {
   const dateOptions = useMemo(() => buildDateOptions(props.timezone), [props.timezone]);
   const [selectedServiceId, setSelectedServiceId] = useState<string>(props.services[0]?.id ?? "");
-  const [selectedProfessionalId, setSelectedProfessionalId] = useState<string>(props.professionals[0]?.id ?? "");
+  const [selectedProfessionalId, setSelectedProfessionalId] = useState<string>("");
   const [selectedDate, setSelectedDate] = useState(dateOptions[0]?.value ?? "");
   const [slots, setSlots] = useState<AvailabilitySlot[]>([]);
   const [selectedSlot, setSelectedSlot] = useState<AvailabilitySlot | null>(null);
@@ -108,8 +108,11 @@ export function BookingExperience(props: BookingExperienceProps) {
   const selectedService = props.services.find((service) => service.id === selectedServiceId) ?? null;
 
   const availableProfessionals = useMemo(() => {
-    if (!selectedServiceId) return props.professionals;
+    if (!selectedServiceId) {
+      return props.professionals.filter((professional) => professional.availabilities.length > 0);
+    }
     return props.professionals.filter((professional) => {
+      if (!professional.availabilities.length) return false;
       if (!professional.services.length) return true;
       return professional.services.some((service) => service.serviceId === selectedServiceId);
     });

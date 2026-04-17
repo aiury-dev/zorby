@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { Globe, ImageIcon, Palette, ShieldCheck } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { prisma } from "@/lib/prisma";
 import { saveBusinessSettingsAction } from "@/server/actions/dashboard";
@@ -37,23 +38,57 @@ export default async function ConfiguracoesPage() {
 
   return (
     <div className="space-y-8">
-      <header className="space-y-2">
-        <p className="text-sm font-semibold uppercase tracking-[0.24em] text-[color:var(--color-fg-muted)]">
-          Configurações
-        </p>
-        <h1 className="text-4xl font-semibold text-[color:var(--color-fg-default)]">
-          Marca, políticas e página pública
-        </h1>
-        <p className="max-w-3xl text-sm leading-7 text-[color:var(--color-fg-muted)]">
-          Ajuste o que aparece para o cliente final, incluindo logo, foto de capa, cores e regras
-          de cancelamento.
-        </p>
+      <header className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
+        <div className="max-w-3xl space-y-3">
+          <div className="inline-flex items-center gap-2 rounded-full border border-[color:var(--color-border-default)] bg-[color:var(--color-surface-muted)] px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.26em] text-[color:var(--color-fg-muted)]">
+            <Palette className="size-3.5 text-[color:var(--color-brand-500)]" />
+            Configurações
+          </div>
+          <h1 className="text-4xl font-semibold leading-tight text-[color:var(--color-fg-default)]">
+            Marca, políticas e experiência pública com acabamento profissional.
+          </h1>
+          <p className="text-sm leading-7 text-[color:var(--color-fg-muted)] md:text-base">
+            Ajuste o que o cliente vê, personalize cores, refine o posicionamento da página e
+            defina as regras de cancelamento do negócio.
+          </p>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-3 xl:min-w-[430px]">
+          <article className="rounded-[26px] border border-[color:var(--color-border-default)] bg-white p-4 shadow-[0_14px_36px_rgba(15,23,42,0.04)]">
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[color:var(--color-fg-muted)]">
+              Link público
+            </p>
+            <p className="mt-3 text-lg font-semibold text-[color:var(--color-fg-default)]">Ativo</p>
+          </article>
+          <article className="rounded-[26px] border border-[color:var(--color-border-default)] bg-white p-4 shadow-[0_14px_36px_rgba(15,23,42,0.04)]">
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[color:var(--color-fg-muted)]">
+              Cor principal
+            </p>
+            <div className="mt-3 flex items-center gap-3">
+              <span
+                className="block size-5 rounded-full ring-4 ring-[color:var(--color-surface-muted)]"
+                style={{ backgroundColor: business.brandPrimaryColor ?? "#1664E8" }}
+              />
+              <p className="text-sm font-semibold text-[color:var(--color-fg-default)]">
+                {business.brandPrimaryColor ?? "#1664E8"}
+              </p>
+            </div>
+          </article>
+          <article className="rounded-[26px] border border-[color:var(--color-border-default)] bg-white p-4 shadow-[0_14px_36px_rgba(15,23,42,0.04)]">
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[color:var(--color-fg-muted)]">
+              Lead time
+            </p>
+            <p className="mt-3 text-lg font-semibold text-[color:var(--color-fg-default)]">
+              {business.minimumLeadTimeMinutes} min
+            </p>
+          </article>
+        </div>
       </header>
 
-      <section className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+      <section className="grid gap-6 xl:grid-cols-[1.18fr_0.82fr]">
         <form
           action={saveBusinessSettingsAction}
-          className="space-y-6 rounded-[28px] border border-[color:var(--color-border-default)] bg-white p-6"
+          className="space-y-6 rounded-[32px] border border-[color:var(--color-border-default)] bg-white p-6 shadow-[0_20px_50px_rgba(15,23,42,0.05)] md:p-7"
         >
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2 md:col-span-2">
@@ -67,6 +102,7 @@ export default async function ConfiguracoesPage() {
                 placeholder="Ex.: Agende seu horário com Studio Aurora"
               />
             </div>
+
             <div className="space-y-2 md:col-span-2">
               <label className="text-sm font-medium text-[color:var(--color-fg-default)]" htmlFor="description">
                 Descrição
@@ -76,20 +112,17 @@ export default async function ConfiguracoesPage() {
                 name="description"
                 defaultValue={business.description ?? ""}
                 placeholder="Explique seu atendimento, especialidades e diferenciais."
-                className="min-h-[140px] w-full rounded-2xl border border-[color:var(--color-border-default)] px-4 py-3 text-sm text-[color:var(--color-fg-default)] placeholder:text-[color:var(--color-fg-muted)] focus:border-[color:var(--color-brand-500)] focus:outline-none"
+                className="min-h-[140px] w-full rounded-2xl border border-[color:var(--color-border-default)] px-4 py-3 text-sm text-[color:var(--color-fg-default)] placeholder:text-[color:var(--color-fg-muted)] outline-none transition focus:border-[color:var(--color-brand-500)]"
               />
             </div>
+
             <div className="space-y-2">
               <label className="text-sm font-medium text-[color:var(--color-fg-default)]" htmlFor="phone">
                 Telefone principal
               </label>
-              <Input
-                id="phone"
-                name="phone"
-                defaultValue={business.phone ?? ""}
-                placeholder="(11) 99999-0000"
-              />
+              <Input id="phone" name="phone" defaultValue={business.phone ?? ""} placeholder="(11) 99999-0000" />
             </div>
+
             <div className="space-y-2">
               <label
                 className="text-sm font-medium text-[color:var(--color-fg-default)]"
@@ -106,6 +139,7 @@ export default async function ConfiguracoesPage() {
                 defaultValue={business.minimumLeadTimeMinutes}
               />
             </div>
+
             <div className="space-y-2">
               <label
                 className="text-sm font-medium text-[color:var(--color-fg-default)]"
@@ -122,6 +156,7 @@ export default async function ConfiguracoesPage() {
                 defaultValue={business.cancellationNoticeMinutes}
               />
             </div>
+
             <div className="space-y-2">
               <label className="text-sm font-medium text-[color:var(--color-fg-default)]" htmlFor="brandPrimaryColor">
                 Cor principal
@@ -133,6 +168,7 @@ export default async function ConfiguracoesPage() {
                 defaultValue={business.brandPrimaryColor ?? "#1664E8"}
               />
             </div>
+
             <div className="space-y-2">
               <label
                 className="text-sm font-medium text-[color:var(--color-fg-default)]"
@@ -147,6 +183,7 @@ export default async function ConfiguracoesPage() {
                 defaultValue={business.brandSecondaryColor ?? "#1254C7"}
               />
             </div>
+
             <div className="space-y-2 md:col-span-2">
               <label className="text-sm font-medium text-[color:var(--color-fg-default)]" htmlFor="logoUrl">
                 URL da logo
@@ -159,6 +196,7 @@ export default async function ConfiguracoesPage() {
                 placeholder="https://..."
               />
             </div>
+
             <div className="space-y-2 md:col-span-2">
               <label className="text-sm font-medium text-[color:var(--color-fg-default)]" htmlFor="coverImageUrl">
                 URL da foto de capa
@@ -171,6 +209,7 @@ export default async function ConfiguracoesPage() {
                 placeholder="https://..."
               />
             </div>
+
             <div className="space-y-2 md:col-span-2">
               <label
                 className="text-sm font-medium text-[color:var(--color-fg-default)]"
@@ -183,61 +222,82 @@ export default async function ConfiguracoesPage() {
                 name="cancellationPolicyText"
                 defaultValue={business.cancellationPolicyText ?? ""}
                 placeholder="Ex.: cancelamentos com menos de 2 horas de antecedência não são aceitos."
-                className="min-h-[120px] w-full rounded-2xl border border-[color:var(--color-border-default)] px-4 py-3 text-sm text-[color:var(--color-fg-default)] placeholder:text-[color:var(--color-fg-muted)] focus:border-[color:var(--color-brand-500)] focus:outline-none"
+                className="min-h-[120px] w-full rounded-2xl border border-[color:var(--color-border-default)] px-4 py-3 text-sm text-[color:var(--color-fg-default)] placeholder:text-[color:var(--color-fg-muted)] outline-none transition focus:border-[color:var(--color-brand-500)]"
               />
             </div>
           </div>
 
-          <button className="rounded-full bg-[color:var(--color-brand-500)] px-5 py-3 text-sm font-semibold text-white">
+          <button className="inline-flex h-12 items-center justify-center rounded-2xl bg-[color:var(--color-brand-500)] px-6 text-sm font-semibold text-white shadow-[0_16px_32px_rgba(37,99,235,0.18)] transition hover:bg-[color:var(--color-brand-600)]">
             Salvar configurações
           </button>
         </form>
 
         <aside className="space-y-4">
-          <div className="rounded-[28px] border border-[color:var(--color-border-default)] bg-white p-6">
-            <p className="text-sm font-semibold uppercase tracking-[0.24em] text-[color:var(--color-fg-muted)]">
-              Preview rápido
-            </p>
-            <div className="mt-4 overflow-hidden rounded-[24px] border border-[color:var(--color-border-default)]">
-              <div
-                className="h-32 bg-cover bg-center"
-                style={{
-                  backgroundColor: business.brandPrimaryColor ?? "#1664E8",
-                  backgroundImage: business.coverImageUrl ? `url(${business.coverImageUrl})` : undefined,
-                }}
-              />
-              <div className="space-y-3 p-5">
-                <div className="flex items-center gap-3">
-                  {business.logoUrl ? (
-                    <img
-                      src={business.logoUrl}
-                      alt={`Logo de ${business.name}`}
-                      className="h-14 w-14 rounded-2xl object-cover"
-                    />
-                  ) : (
-                    <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-lg font-semibold text-slate-700">
-                      {business.name.slice(0, 1).toUpperCase()}
-                    </div>
-                  )}
-                  <div>
-                    <p className="text-lg font-semibold text-[color:var(--color-fg-default)]">
-                      {business.bookingTitle ?? business.name}
-                    </p>
-                    <p className="text-sm text-[color:var(--color-fg-muted)]">
-                      {business.description || "Sua página pública vai refletir essas informações."}
-                    </p>
+          <article className="overflow-hidden rounded-[30px] border border-[color:var(--color-border-default)] bg-white shadow-[0_20px_50px_rgba(15,23,42,0.05)]">
+            <div
+              className="relative h-40 bg-cover bg-center"
+              style={{
+                backgroundColor: business.brandPrimaryColor ?? "#1664E8",
+                backgroundImage: business.coverImageUrl ? `url(${business.coverImageUrl})` : undefined,
+              }}
+            >
+              <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(15,23,42,0.10),rgba(15,23,42,0.56))]" />
+              <div className="absolute left-5 top-5 inline-flex items-center gap-2 rounded-full border border-white/12 bg-white/10 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.22em] text-white/80 backdrop-blur">
+                <ImageIcon className="size-3.5" />
+                Preview
+              </div>
+            </div>
+            <div className="space-y-4 p-5">
+              <div className="flex items-start gap-4">
+                {business.logoUrl ? (
+                  <img
+                    src={business.logoUrl}
+                    alt={`Logo de ${business.name}`}
+                    className="h-14 w-14 rounded-[18px] object-cover"
+                  />
+                ) : (
+                  <div className="flex h-14 w-14 items-center justify-center rounded-[18px] bg-[color:var(--color-surface-muted)] text-lg font-semibold text-[color:var(--color-brand-500)]">
+                    {business.name.slice(0, 1).toUpperCase()}
                   </div>
+                )}
+                <div>
+                  <p className="text-lg font-semibold text-[color:var(--color-fg-default)]">
+                    {business.bookingTitle ?? business.name}
+                  </p>
+                  <p className="mt-2 text-sm leading-7 text-[color:var(--color-fg-muted)]">
+                    {business.description || "Sua página pública vai refletir essas informações."}
+                  </p>
                 </div>
               </div>
             </div>
-          </div>
+          </article>
 
-          <div className="rounded-[28px] border border-[color:var(--color-border-default)] bg-slate-50 p-6">
-            <p className="text-sm font-medium text-[color:var(--color-fg-default)]">
-              URL pública ativa
-            </p>
-            <p className="mt-2 break-all text-sm text-[color:var(--color-fg-muted)]">{publicUrl}</p>
-          </div>
+          <article className="rounded-[28px] border border-[color:var(--color-border-default)] bg-white p-5">
+            <div className="flex items-start gap-3">
+              <div className="rounded-2xl bg-[color:var(--color-surface-muted)] p-2.5 text-[color:var(--color-brand-500)]">
+                <Globe className="size-5" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-[color:var(--color-fg-default)]">URL pública ativa</p>
+                <p className="mt-2 break-all text-sm text-[color:var(--color-fg-muted)]">{publicUrl}</p>
+              </div>
+            </div>
+          </article>
+
+          <article className="rounded-[28px] border border-[color:var(--color-border-default)] bg-[linear-gradient(180deg,#0f172a_0%,#172554_100%)] p-5 text-white">
+            <div className="flex items-start gap-3">
+              <div className="rounded-2xl border border-white/10 bg-white/10 p-2.5">
+                <ShieldCheck className="size-5" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold">Regras claras geram menos atrito</p>
+                <p className="mt-2 text-sm leading-7 text-white/72">
+                  Antecedência mínima, política de cancelamento e um bom texto de apresentação
+                  melhoram a confiança antes do clique final.
+                </p>
+              </div>
+            </div>
+          </article>
         </aside>
       </section>
     </div>
