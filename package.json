@@ -25,6 +25,7 @@
     "@prisma/adapter-pg": "^7.7.0",
     "@prisma/client": "^7.7.0",
     "@sentry/nextjs": "^10.49.0",
+    "@tailwindcss/postcss": "^4",
     "@upstash/redis": "^1.37.0",
     "bcryptjs": "^3.0.3",
     "bullmq": "^5.74.1",
@@ -44,12 +45,12 @@
     "react-dom": "^18.3.1",
     "react-hook-form": "^7.72.1",
     "resend": "^6.12.0",
+    "tailwindcss": "^4",
     "tailwind-merge": "^3.5.0",
     "zod": "^4.3.6",
     "zustand": "^5.0.12"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^18.3.28",
     "@types/react-dom": "^18.3.7",
@@ -57,7 +58,6 @@
     "eslint": "^8.57.1",
     "eslint-config-next": "^15.5.15",
     "prisma": "^7.7.0",
-    "tailwindcss": "^4",
     "tsx": "^4.21.0",
     "typescript": "^5",
     "vitest": "^4.1.4"
