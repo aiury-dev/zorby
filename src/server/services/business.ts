@@ -172,6 +172,17 @@ export async function getPublicBusinessBySlug(slug: string) {
               serviceId: true,
             },
           },
+          availabilities: {
+            where: { isActive: true },
+            orderBy: [{ dayOfWeek: "asc" }, { startMinutes: "asc" }],
+            select: {
+              id: true,
+              dayOfWeek: true,
+              startMinutes: true,
+              endMinutes: true,
+              slotIntervalMinutes: true,
+            },
+          },
         },
       },
       reviews: {

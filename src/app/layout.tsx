@@ -1,6 +1,19 @@
 import type { Metadata } from "next";
+import { Inter, JetBrains_Mono } from "next/font/google";
 import { RegisterServiceWorker } from "@/components/pwa/register-service-worker";
 import "./globals.css";
+
+const inter = Inter({
+  subsets: ["latin"],
+  variable: "--font-inter",
+  display: "swap",
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ["latin"],
+  variable: "--font-jetbrains",
+  display: "swap",
+});
 
 function resolveMetadataBase() {
   try {
@@ -24,7 +37,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="pt-BR" className="h-full antialiased">
+    <html
+      lang="pt-BR"
+      className={`h-full antialiased ${inter.variable} ${jetbrainsMono.variable}`}
+    >
       <body className="flex min-h-full flex-col">
         <RegisterServiceWorker />
         {children}

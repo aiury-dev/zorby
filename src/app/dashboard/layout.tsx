@@ -20,14 +20,11 @@ export default async function DashboardLayout({
 
   const currentSubscription = membership.business.subscriptions[0];
   const subscriptionLabel = currentSubscription
-    ? `${currentSubscription.plan.name} · ${currentSubscription.status.toLowerCase()}`
+    ? `${currentSubscription.plan.name} • ${currentSubscription.status.toLowerCase()}`
     : "Sem assinatura";
 
   return (
-    <DashboardShell
-      businessName={membership.business.name}
-      subscriptionLabel={subscriptionLabel}
-    >
+    <DashboardShell businessName={membership.business.name} subscriptionLabel={subscriptionLabel}>
       {children}
     </DashboardShell>
   );
