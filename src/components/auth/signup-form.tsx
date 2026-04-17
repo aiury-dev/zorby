@@ -36,7 +36,7 @@ export function SignupForm() {
       const payload = (await response.json()) as { error?: string };
 
       if (!response.ok) {
-        setMessage(payload.error ?? "Nao foi possivel criar sua conta.");
+        setMessage(payload.error ?? "Não foi possível criar sua conta.");
         return;
       }
 
@@ -56,13 +56,13 @@ export function SignupForm() {
       <div className="space-y-2">
         <h1 className="text-3xl font-semibold text-[color:var(--color-fg-default)]">Criar conta</h1>
         <p className="text-sm leading-6 text-[color:var(--color-fg-muted)]">
-          Vamos abrir sua area no Zorby e deixar o negocio pronto para agendar online.
+          Vamos abrir sua área no Zorby e deixar o negócio pronto para agendar online.
         </p>
       </div>
 
       <form className="mt-8 space-y-4" onSubmit={handleSubmit}>
         <Input
-          placeholder="Nome do negocio"
+          placeholder="Nome do negócio"
           value={form.businessName}
           onChange={(event) => updateField("businessName", event.target.value)}
           required
@@ -85,6 +85,7 @@ export function SignupForm() {
           placeholder="Crie uma senha segura"
           value={form.password}
           onChange={(event) => updateField("password", event.target.value)}
+          minLength={8}
           required
         />
         <Button className="w-full" disabled={isPending}>
@@ -92,10 +93,15 @@ export function SignupForm() {
         </Button>
       </form>
 
-      {message ? <p className="mt-4 text-sm text-[color:var(--color-danger)]">{message}</p> : null}
+      {message ? (
+        <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <p className="font-medium">Não foi possível concluir o cadastro.</p>
+          <p className="mt-1">{message}</p>
+        </div>
+      ) : null}
 
       <p className="mt-6 text-sm text-[color:var(--color-fg-muted)]">
-        Ja tem conta?{" "}
+        Já tem conta?{" "}
         <Link className="font-medium text-[color:var(--color-brand-500)]" href="/login">
           Entrar
         </Link>

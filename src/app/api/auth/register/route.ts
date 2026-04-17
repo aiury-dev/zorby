@@ -1,6 +1,7 @@
 import bcrypt from "bcryptjs";
 import { NextResponse } from "next/server";
 import { Resend } from "resend";
+import { ZodError } from "zod";
 import { renderWelcomeEmail } from "@/lib/email-templates";
 import { prisma } from "@/lib/prisma";
 import { createBusinessForUser } from "@/server/services/business";
@@ -60,7 +61,13 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ ok: true }, { status: 201 });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Nao foi possivel criar a conta.";
+    const message =
+      error instanceof ZodError
+        ? error.issues[0]?.message ?? "Confira os dados informados."
+        : error instanceof Error
+          ? error.message
+          : "Não foi possível criar a conta.";
+
     return NextResponse.json({ error: message }, { status: 400 });
   }
 }

@@ -27,7 +27,7 @@ async function loadUserMembership(userId: string) {
 export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma),
   session: {
-    strategy: "database",
+    strategy: "jwt",
   },
   pages: {
     signIn: "/login",
@@ -110,16 +110,28 @@ export const authOptions: NextAuthOptions = {
       : []),
   ],
   callbacks: {
-    async session({ session, user }) {
+    async jwt({ token, user }) {
+      if (user?.id) {
+        const membership = await loadUserMembership(user.id);
+
+        token.sub = user.id;
+        token.businessId = membership?.businessId;
+        token.role = membership?.role;
+      }
+
+      return token;
+    },
+    async session({ session, token }) {
       if (!session.user) {
         return session;
       }
 
-      const membership = await loadUserMembership(user.id);
-
-      session.user.id = user.id;
-      session.user.businessId = membership?.businessId;
-      session.user.role = membership?.role;
+      session.user.id = token.sub ?? "";
+      session.user.businessId = typeof token.businessId === "string" ? token.businessId : undefined;
+      session.user.role =
+        typeof token.role === "string"
+          ? (token.role as "OWNER" | "ADMIN" | "STAFF" | "VIEWER")
+          : undefined;
 
       return session;
     },
