@@ -5,7 +5,6 @@ import {
   CalendarDays,
   ChartNoAxesCombined,
   CheckCircle2,
-  Clock3,
   LayoutDashboard,
   Sparkles,
 } from "lucide-react";
@@ -49,17 +48,19 @@ const metrics = [
 
 export default function Home() {
   return (
-    <main className="flex flex-1 flex-col bg-[radial-gradient(circle_at_top_left,#dbeafe_0%,transparent_22%),radial-gradient(circle_at_bottom_right,#bfdbfe_0%,transparent_18%),linear-gradient(180deg,#f8fafc_0%,#eef4ff_100%)]">
+    <main className="relative flex flex-1 flex-col overflow-hidden bg-[linear-gradient(180deg,#edf4ff_0%,#f7faff_48%,#eef4ff_100%)]">
+      <div className="pointer-events-none absolute left-1/2 top-[-220px] h-[620px] w-[960px] -translate-x-1/2 rounded-full bg-[radial-gradient(circle,rgba(37,99,235,0.18)_0%,transparent_64%)]" />
+
       <section className="mx-auto flex w-full max-w-7xl flex-1 flex-col justify-center gap-10 px-4 py-10 md:px-8 md:py-14 xl:gap-14 xl:py-20">
-        <div className="grid gap-8 xl:grid-cols-[1.05fr_0.95fr] xl:items-center">
+        <div className="grid gap-8 xl:grid-cols-[1.02fr_0.98fr] xl:items-center">
           <div className="max-w-3xl space-y-8">
-            <div className="inline-flex items-center gap-2 rounded-full border border-white/80 bg-white/85 px-4 py-2 text-sm font-medium text-[color:var(--color-fg-muted)] shadow-[0_10px_30px_rgba(15,23,42,0.06)] backdrop-blur">
-              <Sparkles className="size-4 text-[color:var(--color-brand-500)]" />
+            <div className="inline-flex items-center gap-2 rounded-full border border-[rgba(37,99,235,0.18)] bg-[rgba(37,99,235,0.08)] px-4 py-2 text-sm font-medium text-[color:var(--color-brand-600)] shadow-[var(--shadow-sm)] backdrop-blur">
+              <Sparkles className="size-4" />
               Agendamento online para negócios locais
             </div>
 
             <div className="space-y-5">
-              <h1 className="max-w-4xl text-5xl font-semibold tracking-tight text-[color:var(--color-fg-default)] md:text-6xl xl:text-7xl">
+              <h1 className="max-w-4xl text-5xl font-semibold tracking-[-0.04em] text-[color:var(--color-fg-default)] md:text-6xl xl:text-7xl [font-family:var(--font-display)]">
                 Seu negócio disponível 24h para novos agendamentos.
               </h1>
               <p className="max-w-2xl text-lg leading-9 text-[color:var(--color-fg-muted)] md:text-xl">
@@ -71,14 +72,14 @@ export default function Home() {
             <div className="flex flex-col gap-3 sm:flex-row">
               <Link
                 href="/cadastro"
-                className="inline-flex h-13 items-center justify-center gap-2 rounded-full bg-[color:var(--color-brand-500)] px-7 text-sm font-semibold text-white shadow-[0_14px_30px_rgba(22,100,232,0.26)] transition hover:bg-[color:var(--color-brand-600)]"
+                className="inline-flex h-14 items-center justify-center gap-2 rounded-[18px] bg-[color:var(--color-brand-500)] px-7 text-sm font-semibold text-white shadow-[0_18px_40px_rgba(37,99,235,0.24)] transition hover:bg-[color:var(--color-brand-600)]"
               >
                 Criar conta grátis
                 <ArrowRight className="size-4" />
               </Link>
               <Link
                 href="/login"
-                className="inline-flex h-13 items-center justify-center rounded-full border border-[color:var(--color-border-default)] bg-white px-7 text-sm font-semibold text-[color:var(--color-fg-default)] shadow-[0_10px_24px_rgba(15,23,42,0.05)] transition hover:border-[color:var(--color-border-strong)] hover:bg-slate-50"
+                className="inline-flex h-14 items-center justify-center rounded-[18px] border border-[color:var(--color-border-default)] bg-white/92 px-7 text-sm font-semibold text-[color:var(--color-fg-default)] shadow-[var(--shadow-sm)] transition hover:border-[color:var(--color-border-strong)] hover:bg-white"
               >
                 Entrar no painel
               </Link>
@@ -91,7 +92,7 @@ export default function Home() {
                 return (
                   <article
                     key={highlight.title}
-                    className="rounded-[24px] border border-white/80 bg-white/92 p-4 shadow-[0_12px_30px_rgba(15,23,42,0.06)] backdrop-blur"
+                    className="rounded-[24px] border border-white/80 bg-white/92 p-4 shadow-[var(--shadow-md)] backdrop-blur"
                   >
                     <div className="flex size-11 items-center justify-center rounded-2xl bg-blue-50 text-[color:var(--color-brand-500)]">
                       <Icon className="size-5" />
@@ -109,16 +110,13 @@ export default function Home() {
           </div>
 
           <div className="relative">
-            <div className="absolute -left-4 top-10 hidden h-24 w-24 rounded-full bg-blue-200/40 blur-3xl md:block" />
-            <div className="absolute -right-2 bottom-8 hidden h-28 w-28 rounded-full bg-emerald-200/30 blur-3xl md:block" />
-
-            <div className="relative overflow-hidden rounded-[36px] border border-white/70 bg-white/92 p-6 shadow-[0_24px_70px_rgba(15,23,42,0.10)] backdrop-blur md:p-8">
+            <div className="relative overflow-hidden rounded-[36px] border border-white/70 bg-white/92 p-6 shadow-[var(--shadow-lg)] backdrop-blur md:p-8">
               <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
                 <div className="max-w-md">
                   <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[color:var(--color-fg-muted)]">
                     Feito para
                   </p>
-                  <h2 className="mt-3 text-3xl font-semibold leading-tight text-[color:var(--color-fg-default)] md:text-4xl">
+                  <h2 className="mt-3 text-3xl font-semibold leading-tight text-[color:var(--color-fg-default)] md:text-4xl [font-family:var(--font-display)]">
                     Operações que precisam de agenda organizada
                   </h2>
                 </div>
@@ -138,11 +136,13 @@ export default function Home() {
                 ))}
               </div>
 
-              <div className="mt-6 overflow-hidden rounded-[30px] border border-slate-200 bg-[linear-gradient(135deg,#0f172a_0%,#163d78_45%,#1d72d8_100%)] p-6 text-white shadow-[0_24px_50px_rgba(15,23,42,0.18)]">
+              <div className="mt-6 overflow-hidden rounded-[30px] border border-slate-200 bg-[linear-gradient(140deg,#112060_0%,#0e1b50_44%,#0a1435_100%)] p-6 text-white shadow-[0_24px_50px_rgba(15,23,42,0.18)]">
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <p className="text-sm text-white/65">Exemplo de valor entregue</p>
-                    <h3 className="mt-2 text-2xl font-semibold">Menos ruído, mais reservas</h3>
+                    <h3 className="mt-2 text-2xl font-semibold [font-family:var(--font-display)]">
+                      Menos ruído, mais reservas
+                    </h3>
                   </div>
                   <div className="rounded-2xl border border-white/10 bg-white/10 p-3">
                     <ChartNoAxesCombined className="size-5" />
@@ -155,7 +155,9 @@ export default function Home() {
                       key={metric.value}
                       className="rounded-[24px] border border-white/10 bg-white/10 p-4 backdrop-blur"
                     >
-                      <p className="text-3xl font-semibold">{metric.value}</p>
+                      <p className="text-3xl font-semibold [font-family:var(--font-display)]">
+                        {metric.value}
+                      </p>
                       <p className="mt-3 text-sm leading-7 text-white/72">{metric.description}</p>
                     </div>
                   ))}
