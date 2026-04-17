@@ -93,7 +93,7 @@ export default async function PublicBookingPage({ params }: Params) {
   };
 
   return (
-    <main className="flex-1 bg-[radial-gradient(circle_at_top,#eff6ff,transparent_42%),linear-gradient(180deg,#f8fafc_0%,#eef4ff_100%)] px-4 py-8 md:px-6 md:py-10">
+    <main className="flex-1 bg-stone-50">
       <script
         type="application/ld+json"
         suppressHydrationWarning
@@ -109,6 +109,10 @@ export default async function PublicBookingPage({ params }: Params) {
           city={business.city}
           neighborhood={business.neighborhood}
           cancellationPolicyText={business.cancellationPolicyText}
+          logoUrl={business.logoUrl}
+          coverImageUrl={business.coverImageUrl}
+          brandPrimaryColor={business.brandPrimaryColor}
+          brandSecondaryColor={business.brandSecondaryColor}
           services={business.services}
           professionals={business.professionals}
           reviews={business.reviews}

@@ -3,9 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { addDays } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
-import { CalendarClock, CheckCircle2, Clock3, ShieldCheck, Star, UserRound } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Star, MapPin, Phone, Clock, ChevronRight, Check, Calendar, Download, ShieldCheck } from "lucide-react";
 import { cn, formatCurrencyBRL } from "@/lib/utils";
 
 type BookingExperienceProps = {
@@ -17,6 +15,10 @@ type BookingExperienceProps = {
   city?: string | null;
   neighborhood?: string | null;
   cancellationPolicyText?: string | null;
+  logoUrl?: string | null;
+  coverImageUrl?: string | null;
+  brandPrimaryColor?: string | null;
+  brandSecondaryColor?: string | null;
   services: Array<{
     id: string;
     name: string;
@@ -53,13 +55,9 @@ type BookingExperienceProps = {
   }>;
 };
 
-type AvailabilitySlot = {
-  startsAt: string;
-  endsAt: string;
-  label: string;
-};
+type AvailabilitySlot = { startsAt: string; endsAt: string; label: string };
 
-const browserTimezone =
+const browserTZ =
   typeof Intl !== "undefined"
     ? Intl.DateTimeFormat().resolvedOptions().timeZone
     : "America/Sao_Paulo";
@@ -89,54 +87,88 @@ function buildDateOptions(timezone: string) {
   });
 }
 
+function buildGoogleCalUrl(input: { title: string; details: string; location: string; startsAt: string; endsAt: string }) {
+  const fmt = (v: string) => v.replace(/[-:]/g, "").replace(".000Z", "Z");
+  return `https://calendar.google.com/calendar/render?${new URLSearchParams({ action: "TEMPLATE", text: input.title, details: input.details, location: input.location, dates: `${fmt(input.startsAt)}/${fmt(input.endsAt)}` })}`;
+}
+
+function buildIcs(input: { title: string; description: string; location: string; startsAt: string; endsAt: string }) {
+  const fmt = (v: string) => v.replace(/[-:]/g, "").replace(".000Z", "Z");
+  const content = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Zorby//PT-BR", "BEGIN:VEVENT", `DTSTART:${fmt(input.startsAt)}`, `DTEND:${fmt(input.endsAt)}`, `SUMMARY:${input.title}`, `DESCRIPTION:${input.description}`, `LOCATION:${input.location}`, "END:VEVENT", "END:VCALENDAR"].join("\n");
+  return `data:text/calendar;charset=utf-8,${encodeURIComponent(content)}`;
+}
+
+function Avatar({ name, photo, size = 40 }: { name: string; photo?: string | null; size?: number }) {
+  const initials = name.split(" ").slice(0, 2).map((w) => w[0]).join("").toUpperCase();
+  if (photo) return <img src={photo} alt={name} width={size} height={size} className="rounded-full object-cover" style={{ width: size, height: size }} />;
+  return (
+    <div className="flex items-center justify-center rounded-full bg-[var(--bk-accent-dim)] text-[var(--bk-accent)]" style={{ width: size, height: size, fontSize: size * 0.36, fontWeight: 600 }}>
+      {initials}
+    </div>
+  );
+}
+
+function StepBadge({ n, active, done }: { n: number; active: boolean; done: boolean }) {
+  return (
+    <div className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold transition-all ${done ? "bg-[var(--bk-accent)] text-[var(--bk-accent-fg)]" : active ? "bg-[var(--bk-accent)] text-[var(--bk-accent-fg)]" : "bg-[var(--bk-border)] text-[var(--bk-muted)]"}`}>
+      {done ? <Check size={11} strokeWidth={3} /> : n}
+    </div>
+  );
+}
+
 export function BookingExperience(props: BookingExperienceProps) {
+  const accent = props.brandPrimaryColor ?? "#1664e8";
+  const accentDim = `${accent}18`;
   const dateOptions = useMemo(() => buildDateOptions(props.timezone), [props.timezone]);
-  const [selectedServiceId, setSelectedServiceId] = useState<string>(props.services[0]?.id ?? "");
-  const [selectedProfessionalId, setSelectedProfessionalId] = useState<string>("");
-  const [selectedDate, setSelectedDate] = useState(dateOptions[0]?.value ?? "");
+
+  const [serviceId, setServiceId] = useState(props.services[0]?.id ?? "");
+  const [variantId, setVariantId] = useState("");
+  const [proId, setProId] = useState("");
+  const [date, setDate] = useState(dateOptions[0]?.value ?? "");
   const [slots, setSlots] = useState<AvailabilitySlot[]>([]);
-  const [selectedSlot, setSelectedSlot] = useState<AvailabilitySlot | null>(null);
+  const [slot, setSlot] = useState<AvailabilitySlot | null>(null);
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<null | { startsAt: string }>(null);
-  const [customerName, setCustomerName] = useState("");
-  const [customerEmail, setCustomerEmail] = useState("");
-  const [customerPhone, setCustomerPhone] = useState("");
+  const [success, setSuccess] = useState<null | { appointmentId: string; startsAt: string; cancelToken: string; rescheduleToken: string }>(null);
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
   const [consent, setConsent] = useState(true);
 
-  const selectedService = props.services.find((service) => service.id === selectedServiceId) ?? null;
-
+  const service = props.services.find((s) => s.id === serviceId) ?? null;
+  const variant = service?.variants.find((v) => v.id === variantId) ?? null;
   const availableProfessionals = useMemo(() => {
-    if (!selectedServiceId) {
+    if (!serviceId) {
       return props.professionals.filter((professional) => professional.availabilities.length > 0);
     }
+
     return props.professionals.filter((professional) => {
       if (!professional.availabilities.length) return false;
       if (!professional.services.length) return true;
-      return professional.services.some((service) => service.serviceId === selectedServiceId);
+      return professional.services.some((serviceRelation) => serviceRelation.serviceId === serviceId);
     });
-  }, [props.professionals, selectedServiceId]);
+  }, [props.professionals, serviceId]);
 
   useEffect(() => {
     if (!availableProfessionals.length) {
-      setSelectedProfessionalId("");
+      setProId("");
       return;
     }
-    if (!availableProfessionals.some((professional) => professional.id === selectedProfessionalId)) {
-      setSelectedProfessionalId(availableProfessionals[0]?.id ?? "");
-      setSelectedSlot(null);
+
+    if (!availableProfessionals.some((professional) => professional.id === proId)) {
+      setProId(availableProfessionals[0]?.id ?? "");
+      setSlot(null);
     }
-  }, [availableProfessionals, selectedProfessionalId]);
+  }, [availableProfessionals, proId]);
 
-  const selectedProfessional =
-    availableProfessionals.find((professional) => professional.id === selectedProfessionalId) ?? null;
-
+  const professional = availableProfessionals.find((p) => p.id === proId) ?? null;
+  const avgRating = props.reviews.length ? props.reviews.reduce((s, r) => s + r.rating, 0) / props.reviews.length : null;
   const weeklyAgenda = useMemo(() => {
-    if (!selectedProfessional?.availabilities.length) return [];
+    if (!professional?.availabilities.length) return [];
     return weekdayLabels
       .map((label, index) => {
-        const daySlots = selectedProfessional.availabilities.filter((item) => item.dayOfWeek === index);
+        const daySlots = professional.availabilities.filter((item) => item.dayOfWeek === index);
         if (!daySlots.length) return null;
         return {
           label,
@@ -146,452 +178,425 @@ export function BookingExperience(props: BookingExperienceProps) {
         };
       })
       .filter(Boolean) as Array<{ label: string; value: string }>;
-  }, [selectedProfessional]);
+  }, [professional]);
+
+  const summary = useMemo(() => {
+    if (!service || !professional) return null;
+    return {
+      serviceName: variant ? `${service.name} · ${variant.name}` : service.name,
+      priceCents: variant?.priceCents ?? service.priceCents,
+      durationMinutes: variant?.durationMinutes ?? service.durationMinutes,
+      professionalName: professional.displayName,
+    };
+  }, [professional, service, variant]);
+
+  // step tracking
+  const step1Done = !!serviceId;
+  const step2Done = !!slot;
+  const step3Active = step1Done && step2Done;
 
   useEffect(() => {
-    if (!selectedServiceId || !selectedProfessionalId || !selectedDate) {
-      setSlots([]);
-      return;
-    }
-
+    if (!serviceId || !proId || !date) { setSlots([]); return; }
     let cancelled = false;
-
-    async function loadAvailability() {
-      setLoadingSlots(true);
-      setError(null);
-
-      try {
-        const params = new URLSearchParams({
-          date: selectedDate,
-          serviceId: selectedServiceId,
-          professionalId: selectedProfessionalId,
-          timezone: browserTimezone,
-        });
-
-        const response = await fetch(`/api/public/${props.slug}/availability?${params.toString()}`, {
-          cache: "no-store",
-        });
-        const data = (await response.json()) as { error?: string; slots?: AvailabilitySlot[] };
-
-        if (!response.ok) {
-          throw new Error(data.error ?? "Não foi possível carregar os horários.");
-        }
-
+    setLoadingSlots(true);
+    setError(null);
+    const params = new URLSearchParams({ date, serviceId, professionalId: proId, timezone: browserTZ });
+    fetch(`/api/public/${props.slug}/availability?${params}`, { cache: "no-store" })
+      .then((r) => r.json())
+      .then((data) => {
         if (!cancelled) {
           setSlots(data.slots ?? []);
-          setSelectedSlot((current) =>
-            data.slots?.find((slot) => slot.startsAt === current?.startsAt) ?? null,
-          );
+          setSlot((cur) => data.slots?.find((s: AvailabilitySlot) => s.startsAt === cur?.startsAt) ?? null);
         }
-      } catch (loadError) {
-        if (!cancelled) {
-          setSlots([]);
-          setError(loadError instanceof Error ? loadError.message : "Falha ao buscar horários.");
-        }
-      } finally {
-        if (!cancelled) setLoadingSlots(false);
-      }
-    }
+      })
+      .catch(() => { if (!cancelled) setError("Não foi possível carregar os horários."); })
+      .finally(() => { if (!cancelled) setLoadingSlots(false); });
+    return () => { cancelled = true; };
+  }, [props.slug, date, proId, serviceId]);
 
-    void loadAvailability();
-    return () => {
-      cancelled = true;
-    };
-  }, [props.slug, selectedDate, selectedProfessionalId, selectedServiceId]);
-
-  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    if (!selectedSlot || !selectedService || !selectedProfessional) {
-      setError("Escolha um horário disponível antes de confirmar.");
-      return;
-    }
-
-    setSubmitting(true);
-    setError(null);
-
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!slot || !service || !professional) { setError("Escolha um horário disponível antes de confirmar."); return; }
+    setSubmitting(true); setError(null);
     try {
-      const response = await fetch(`/api/public/${props.slug}/book`, {
+      const res = await fetch(`/api/public/${props.slug}/book`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          serviceId: selectedService.id,
-          professionalId: selectedProfessional.id,
-          startsAt: selectedSlot.startsAt,
-          customerName,
-          customerEmail,
-          customerPhone: customerPhone.replace(/\D/g, ""),
-          customerTimezone: browserTimezone,
-          consent,
-        }),
+        body: JSON.stringify({ serviceId: service.id, serviceVariantId: variant?.id, professionalId: professional.id, startsAt: slot.startsAt, customerName: name, customerEmail: email, customerPhone: phone.replace(/\D/g, ""), customerTimezone: browserTZ, consent }),
       });
-
-      const data = (await response.json()) as { error?: string; startsAt: string };
-      if (!response.ok) {
-        throw new Error(data.error ?? "Não foi possível concluir o agendamento.");
-      }
-
-      setSuccess({ startsAt: data.startsAt });
-    } catch (submitError) {
-      setError(submitError instanceof Error ? submitError.message : "Falha ao concluir o agendamento.");
-    } finally {
-      setSubmitting(false);
-    }
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Não foi possível concluir o agendamento.");
+      setSuccess(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Falha ao concluir.");
+    } finally { setSubmitting(false); }
   }
 
-  if (success && selectedService && selectedProfessional) {
+  const location = [props.neighborhood, props.city].filter(Boolean).join(", ") || props.name;
+
+  // ── Success screen ────────────────────────────────────────────────────────
+  if (success && summary && slot) {
+    const calTitle = `${summary.serviceName} com ${summary.professionalName}`;
     return (
-      <section className="rounded-[36px] border border-emerald-100 bg-[linear-gradient(135deg,#052e16_0%,#0f5132_40%,#059669_100%)] p-6 text-white shadow-[0_24px_70px_rgba(5,46,22,0.22)] md:p-10">
-        <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/10 px-4 py-2 text-sm text-white/85">
-          <CheckCircle2 className="size-4" />
-          Horário confirmado
+      <div data-booking style={{ "--bk-accent": accent, "--bk-accent-dim": accentDim } as React.CSSProperties} className="min-h-screen px-4 py-10 md:py-16">
+        <div className="mx-auto max-w-xl">
+          {/* Logo */}
+          {props.logoUrl && <img src={props.logoUrl} alt={props.name} className="mb-8 h-9 object-contain" />}
+
+          <div className="rounded-2xl border border-[var(--bk-border)] bg-[var(--bk-surface)] p-7 shadow-[0_2px_32px_rgba(0,0,0,0.07)]">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[var(--bk-accent)]">
+              <Check size={22} className="text-white" strokeWidth={2.5} />
+            </div>
+            <h1 className="mt-4 text-2xl font-semibold text-[var(--bk-text)]">Agendamento confirmado!</h1>
+            <p className="mt-2 text-sm leading-6 text-[var(--bk-muted)]">Seu horário está reservado. Veja os detalhes abaixo.</p>
+
+            <div className="mt-6 space-y-3 rounded-xl border border-[var(--bk-border)] bg-[var(--bk-bg)] p-4 text-sm">
+              {[
+                ["Serviço", summary.serviceName],
+                ["Profissional", summary.professionalName],
+                ["Data e hora", formatInTimeZone(success.startsAt, browserTZ, "dd/MM/yyyy 'às' HH:mm")],
+                ["Valor", formatCurrencyBRL(summary.priceCents)],
+                ["Duração", `${summary.durationMinutes} min`],
+              ].map(([label, value]) => (
+                <div key={label} className="flex items-start justify-between gap-4">
+                  <span className="text-[var(--bk-muted)]">{label}</span>
+                  <span className="text-right font-medium text-[var(--bk-text)]">{value}</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-5 flex flex-wrap gap-3">
+              <a href={buildGoogleCalUrl({ title: calTitle, details: `Agendamento em ${props.name}.`, location, startsAt: success.startsAt, endsAt: slot.endsAt })} target="_blank" rel="noreferrer">
+                <button type="button" className="flex items-center gap-2 rounded-full border border-[var(--bk-border)] bg-[var(--bk-surface)] px-4 py-2.5 text-sm font-medium text-[var(--bk-text)] transition hover:border-[var(--bk-border-2)]">
+                  <Calendar size={14} /> Google Agenda
+                </button>
+              </a>
+              <a href={buildIcs({ title: calTitle, description: `Agendamento em ${props.name}.`, location, startsAt: success.startsAt, endsAt: slot.endsAt })} download="agendamento.ics">
+                <button type="button" className="flex items-center gap-2 rounded-full border border-[var(--bk-border)] bg-[var(--bk-surface)] px-4 py-2.5 text-sm font-medium text-[var(--bk-text)] transition hover:border-[var(--bk-border-2)]">
+                  <Download size={14} /> Apple Calendar
+                </button>
+              </a>
+            </div>
+
+            <div className="mt-4 flex flex-wrap gap-3 border-t border-[var(--bk-border)] pt-4 text-sm">
+              <a href={`/cancelar/${success.cancelToken}`} className="text-[var(--bk-muted)] underline-offset-2 hover:underline">Cancelar agendamento</a>
+              <span className="text-[var(--bk-faint)]">·</span>
+              <a href={`/reagendar/${success.rescheduleToken}`} className="text-[var(--bk-muted)] underline-offset-2 hover:underline">Reagendar</a>
+            </div>
+          </div>
         </div>
-        <h2 className="mt-6 text-3xl font-semibold md:text-4xl">Agendamento realizado com sucesso.</h2>
-        <div className="mt-8 grid gap-4 rounded-[28px] border border-white/10 bg-white/10 p-5 md:grid-cols-2">
-          <div>
-            <p className="text-sm text-white/65">Serviço</p>
-            <p className="mt-2 text-lg font-semibold">{selectedService.name}</p>
-          </div>
-          <div>
-            <p className="text-sm text-white/65">Profissional</p>
-            <p className="mt-2 text-lg font-semibold">{selectedProfessional.displayName}</p>
-          </div>
-          <div>
-            <p className="text-sm text-white/65">Quando</p>
-            <p className="mt-2 text-lg font-semibold">
-              {formatInTimeZone(success.startsAt, browserTimezone, "dd/MM/yyyy 'às' HH:mm")}
-            </p>
-          </div>
-          <div>
-            <p className="text-sm text-white/65">Valor</p>
-            <p className="mt-2 text-lg font-semibold">{formatCurrencyBRL(selectedService.priceCents)}</p>
-          </div>
-        </div>
-      </section>
+      </div>
     );
   }
 
+  // ── Main booking page ─────────────────────────────────────────────────────
   return (
-    <div className="grid gap-8 xl:grid-cols-[1.1fr_0.9fr]">
-      <section className="space-y-8">
-        <div className="overflow-hidden rounded-[36px] border border-slate-200 bg-[linear-gradient(135deg,#0f172a_0%,#163d78_42%,#1d72d8_100%)] p-6 text-white shadow-[0_24px_70px_rgba(15,23,42,0.2)] md:p-10">
-          <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
-            <div className="max-w-3xl">
-              <div className="inline-flex rounded-full border border-white/10 bg-white/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.24em] text-white/80">
-                Agenda online
-              </div>
-              <h1 className="mt-6 text-4xl font-semibold tracking-tight md:text-5xl">{props.name}</h1>
-              <p className="mt-4 text-base leading-8 text-white/78">
-                {props.description ||
-                  "Escolha o serviço, selecione o profissional e reserve um horário que ele realmente deixou disponível."}
-              </p>
-              <div className="mt-6 flex flex-wrap gap-3">
-                <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/10 px-4 py-2 text-sm text-white/85">
-                  <CalendarClock className="size-4" />
-                  Agenda definida pelo profissional
-                </div>
-                <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/10 px-4 py-2 text-sm text-white/85">
-                  <ShieldCheck className="size-4" />
-                  Horário reservado não aparece de novo
-                </div>
-              </div>
-            </div>
+    <div data-booking style={{ "--bk-accent": accent, "--bk-accent-dim": accentDim } as React.CSSProperties} className="min-h-screen">
+      {/* Cover / Hero */}
+      <div className="relative h-44 w-full overflow-hidden bg-[var(--bk-border)] md:h-56" style={{ background: `linear-gradient(135deg, ${accent}22 0%, ${accent}08 100%)` }}>
+        {props.coverImageUrl && (
+          <img src={props.coverImageUrl} alt="" className="absolute inset-0 h-full w-full object-cover opacity-30" />
+        )}
+        <div className="absolute inset-0 bg-gradient-to-t from-[var(--bk-bg)] via-transparent to-transparent" />
+      </div>
 
-            <div className="rounded-[28px] border border-white/10 bg-white/10 p-5 backdrop-blur">
-              <p className="text-sm text-white/60">Atendimento</p>
-              <p className="mt-2 font-semibold text-white">
-                {[props.neighborhood, props.city].filter(Boolean).join(", ") || "Online"}
-              </p>
-              {props.phone ? <p className="mt-3 text-sm text-white/80">{props.phone}</p> : null}
+      <div className="relative mx-auto max-w-5xl px-4 pb-16 md:px-6">
+        {/* Business header */}
+        <div className="-mt-8 mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div className="flex items-end gap-4">
+            {props.logoUrl ? (
+              <img src={props.logoUrl} alt={props.name} className="h-16 w-16 rounded-2xl border-4 border-[var(--bk-bg)] object-cover shadow-md" />
+            ) : (
+              <div className="flex h-16 w-16 items-center justify-center rounded-2xl border-4 border-[var(--bk-bg)] shadow-md text-xl font-bold text-[var(--bk-accent-fg)]" style={{ background: accent }}>
+                {props.name[0]}
+              </div>
+            )}
+            <div className="pb-1">
+              <h1 className="text-xl font-semibold text-[var(--bk-text)]">{props.name}</h1>
+              <div className="mt-1 flex flex-wrap items-center gap-3 text-sm text-[var(--bk-muted)]">
+                {location && <span className="flex items-center gap-1"><MapPin size={12} />{location}</span>}
+                {props.phone && <span className="flex items-center gap-1"><Phone size={12} />{props.phone}</span>}
+                {avgRating && (
+                  <span className="flex items-center gap-1">
+                    <Star size={12} className="fill-amber-400 text-amber-400" />
+                    {avgRating.toFixed(1)} ({props.reviews.length})
+                  </span>
+                )}
+              </div>
             </div>
           </div>
         </div>
 
-        <section className="rounded-[32px] border border-[color:var(--color-border-default)] bg-white p-6 shadow-[0_12px_28px_rgba(15,23,42,0.05)] md:p-8">
-          <p className="text-sm font-semibold uppercase tracking-[0.24em] text-[color:var(--color-fg-muted)]">
-            Passo 1
-          </p>
-          <h2 className="mt-3 text-2xl font-semibold text-[color:var(--color-fg-default)]">
-            Escolha o serviço
-          </h2>
+        {props.description && (
+          <p className="mb-8 max-w-2xl text-sm leading-7 text-[var(--bk-muted)]">{props.description}</p>
+        )}
 
-          <div className="mt-6 grid gap-4 md:grid-cols-2">
-            {props.services.map((service) => (
-              <button
-                key={service.id}
-                type="button"
-                onClick={() => {
-                  setSelectedServiceId(service.id);
-                  setSelectedSlot(null);
-                }}
-                className={cn(
-                  "rounded-[28px] border p-5 text-left transition",
-                  selectedServiceId === service.id
-                    ? "border-[color:var(--color-brand-500)] bg-[linear-gradient(180deg,#eff6ff_0%,#dbeafe_100%)]"
-                    : "border-[color:var(--color-border-default)] bg-white hover:border-[color:var(--color-border-strong)] hover:bg-slate-50",
-                )}
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <h3 className="text-lg font-semibold text-[color:var(--color-fg-default)]">{service.name}</h3>
-                    <p className="mt-2 text-sm leading-6 text-[color:var(--color-fg-muted)]">
-                      {service.description || "Serviço configurado para agendamento online."}
-                    </p>
-                  </div>
-                  <span
-                    className="mt-1 inline-flex size-3 rounded-full"
-                    style={{ backgroundColor: service.colorHex ?? "#1664E8" }}
-                  />
-                </div>
-                <div className="mt-5 flex items-center justify-between text-sm text-[color:var(--color-fg-muted)]">
-                  <span>{service.durationMinutes} min</span>
-                  <span className="font-semibold text-[color:var(--color-fg-default)]">
-                    {formatCurrencyBRL(service.priceCents)}
-                  </span>
-                </div>
-              </button>
-            ))}
-          </div>
-        </section>
-
-        <section className="rounded-[32px] border border-[color:var(--color-border-default)] bg-white p-6 shadow-[0_12px_28px_rgba(15,23,42,0.05)] md:p-8">
-          <p className="text-sm font-semibold uppercase tracking-[0.24em] text-[color:var(--color-fg-muted)]">
-            Passo 2
-          </p>
-          <h2 className="mt-3 text-2xl font-semibold text-[color:var(--color-fg-default)]">
-            Escolha o profissional e o horário
-          </h2>
-          <p className="mt-3 max-w-3xl text-sm leading-7 text-[color:var(--color-fg-muted)]">
-            O profissional é quem define a disponibilidade. O cliente escolhe só entre os horários livres. Quando um horário é reservado, ele sai automaticamente da lista.
-          </p>
-
-          <div className="mt-6 grid gap-4 md:grid-cols-2">
-            {availableProfessionals.map((professional) => (
-              <button
-                key={professional.id}
-                type="button"
-                onClick={() => {
-                  setSelectedProfessionalId(professional.id);
-                  setSelectedSlot(null);
-                }}
-                className={cn(
-                  "rounded-[28px] border p-5 text-left transition",
-                  selectedProfessionalId === professional.id
-                    ? "border-[color:var(--color-brand-500)] bg-[linear-gradient(180deg,#eff6ff_0%,#dbeafe_100%)]"
-                    : "border-[color:var(--color-border-default)] bg-white hover:border-[color:var(--color-border-strong)] hover:bg-slate-50",
-                )}
-              >
-                <div className="flex items-start gap-4">
-                  {professional.photoUrl ? (
-                    <img src={professional.photoUrl} alt={professional.displayName} className="size-14 rounded-2xl object-cover" />
-                  ) : (
-                    <div className="flex size-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-600">
-                      <UserRound className="size-6" />
-                    </div>
-                  )}
-                  <div>
-                    <h3 className="text-lg font-semibold text-[color:var(--color-fg-default)]">{professional.displayName}</h3>
-                    <p className="mt-1 text-sm text-[color:var(--color-fg-muted)]">
-                      {professional.roleLabel || "Profissional disponível para reserva online"}
-                    </p>
-                  </div>
-                </div>
-              </button>
-            ))}
-          </div>
-
-          <div className="mt-8 grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
-                {dateOptions.map((option) => (
-                  <button
-                    key={option.value}
-                    type="button"
-                    onClick={() => {
-                      setSelectedDate(option.value);
-                      setSelectedSlot(null);
-                    }}
-                    className={cn(
-                      "rounded-[24px] border px-4 py-4 text-left transition",
-                      selectedDate === option.value
-                        ? "border-[color:var(--color-brand-500)] bg-[color:var(--color-brand-500)] text-white"
-                        : "border-[color:var(--color-border-default)] bg-white hover:border-[color:var(--color-border-strong)]",
-                    )}
-                  >
-                    <p className="text-xs font-semibold uppercase tracking-[0.22em] opacity-70">{option.shortLabel}</p>
-                    <p className="mt-2 text-base font-semibold">{option.longLabel}</p>
-                  </button>
-                ))}
+        <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
+          {/* Left: steps */}
+          <div className="space-y-5">
+            {/* Step 1 — Serviço */}
+            <section className="rounded-2xl border border-[var(--bk-border)] bg-[var(--bk-surface)] p-5 shadow-[0_1px_8px_rgba(0,0,0,0.05)]">
+              <div className="mb-4 flex items-center gap-3">
+                <StepBadge n={1} active={true} done={step1Done} />
+                <h2 className="text-sm font-semibold text-[var(--bk-text)]">Escolha o serviço</h2>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {props.services.map((svc) => {
+                  const selected = serviceId === svc.id;
+                  return (
+                    <button
+                      key={svc.id}
+                      type="button"
+                      onClick={() => { setServiceId(svc.id); setVariantId(""); setSlot(null); }}
+                      className={`rounded-xl border p-4 text-left transition-all ${selected ? "border-[var(--bk-accent)] bg-[var(--bk-accent-dim)] shadow-[0_0_0_1px_var(--bk-accent)]" : "border-[var(--bk-border)] hover:border-[var(--bk-border-2)] hover:bg-[var(--bk-bg)]"}`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="text-sm font-semibold text-[var(--bk-text)]">{svc.name}</span>
+                        {selected && <Check size={14} className="mt-0.5 shrink-0 text-[var(--bk-accent)]" />}
+                      </div>
+                      {svc.description && <p className="mt-1 text-xs leading-5 text-[var(--bk-muted)]">{svc.description}</p>}
+                      <div className="mt-3 flex items-center justify-between text-xs">
+                        <span className="flex items-center gap-1 text-[var(--bk-muted)]"><Clock size={11} />{svc.durationMinutes} min</span>
+                        <span className="font-semibold text-[var(--bk-text)]">{formatCurrencyBRL(svc.priceCents)}</span>
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
 
-              <div className="rounded-[30px] border border-[color:var(--color-border-default)] bg-slate-50 p-5">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <h3 className="text-lg font-semibold text-[color:var(--color-fg-default)]">Horários livres</h3>
-                    <p className="mt-1 text-sm leading-6 text-[color:var(--color-fg-muted)]">
-                      Agenda atualizada em tempo real para evitar marcação duplicada.
-                    </p>
+              {service?.variants.length ? (
+                <div className="mt-4">
+                  <label className="mb-1.5 block text-xs font-medium text-[var(--bk-muted)]">Variação</label>
+                  <select value={variantId} onChange={(e) => setVariantId(e.target.value)} className="h-10 w-full rounded-xl border border-[var(--bk-border)] bg-[var(--bk-bg)] px-3 text-sm text-[var(--bk-text)] focus:border-[var(--bk-accent)] focus:outline-none">
+                    <option value="">Padrão</option>
+                    {service.variants.map((v) => (
+                      <option key={v.id} value={v.id}>{v.name} — {v.durationMinutes} min — {formatCurrencyBRL(v.priceCents)}</option>
+                    ))}
+                  </select>
+                </div>
+              ) : null}
+            </section>
+
+            {/* Step 2 — Data e hora */}
+            <section className="rounded-2xl border border-[var(--bk-border)] bg-[var(--bk-surface)] p-5 shadow-[0_1px_8px_rgba(0,0,0,0.05)]">
+              <div className="mb-4 flex items-center gap-3">
+                <StepBadge n={2} active={step1Done} done={step2Done} />
+                <h2 className="text-sm font-semibold text-[var(--bk-text)]">Escolha data e profissional</h2>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-[var(--bk-muted)]">Profissional</label>
+                  <div className="space-y-2">
+                    {availableProfessionals.map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => { setProId(p.id); setSlot(null); }}
+                        className={`flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-all ${proId === p.id ? "border-[var(--bk-accent)] bg-[var(--bk-accent-dim)]" : "border-[var(--bk-border)] hover:border-[var(--bk-border-2)]"}`}
+                      >
+                        <Avatar name={p.displayName} photo={p.photoUrl} size={32} />
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium text-[var(--bk-text)]">{p.displayName}</p>
+                          {p.roleLabel && <p className="truncate text-xs text-[var(--bk-muted)]">{p.roleLabel}</p>}
+                        </div>
+                        {proId === p.id && <Check size={13} className="ml-auto shrink-0 text-[var(--bk-accent)]" />}
+                      </button>
+                    ))}
                   </div>
-                  {loadingSlots ? <span className="text-sm text-[color:var(--color-fg-muted)]">Carregando...</span> : null}
                 </div>
 
-                <div className="mt-5 flex flex-wrap gap-3">
-                  {slots.map((slot) => (
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-[var(--bk-muted)]">Data</label>
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-1 lg:grid-cols-2">
+                    {dateOptions.map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => {
+                          setDate(option.value);
+                          setSlot(null);
+                        }}
+                        className={cn(
+                          "rounded-xl border px-3 py-3 text-left transition-all",
+                          date === option.value
+                            ? "border-[var(--bk-accent)] bg-[var(--bk-accent)] text-[var(--bk-accent-fg)]"
+                            : "border-[var(--bk-border)] bg-[var(--bk-bg)] hover:border-[var(--bk-border-2)]",
+                        )}
+                      >
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] opacity-70">
+                          {option.shortLabel}
+                        </p>
+                        <p className="mt-1 text-sm font-semibold">{option.longLabel}</p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Horários */}
+              <div className="mt-4">
+                <div className="mb-2 flex items-center justify-between">
+                  <label className="text-xs font-medium text-[var(--bk-muted)]">Horários disponíveis</label>
+                  {loadingSlots && <span className="text-xs text-[var(--bk-faint)]">Carregando...</span>}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {slots.map((s) => (
                     <button
-                      key={slot.startsAt}
+                      key={s.startsAt}
                       type="button"
-                      onClick={() => setSelectedSlot(slot)}
-                      className={cn(
-                        "rounded-2xl border px-4 py-3 text-sm font-semibold transition",
-                        selectedSlot?.startsAt === slot.startsAt
-                          ? "border-[color:var(--color-brand-500)] bg-[color:var(--color-brand-500)] text-white"
-                          : "border-[color:var(--color-border-default)] bg-white text-[color:var(--color-fg-default)] hover:border-[color:var(--color-border-strong)]",
-                      )}
+                      onClick={() => setSlot(s)}
+                      className={`rounded-full px-4 py-2 text-sm font-medium transition-all ${slot?.startsAt === s.startsAt ? "text-[var(--bk-accent-fg)] shadow-[0_0_0_1px_var(--bk-accent)]" : "border border-[var(--bk-border)] bg-[var(--bk-bg)] text-[var(--bk-text)] hover:border-[var(--bk-accent)]"}`}
+                      style={slot?.startsAt === s.startsAt ? { background: accent } : {}}
                     >
-                      {slot.label}
+                      {s.label}
                     </button>
                   ))}
-                  {!loadingSlots && slots.length === 0 ? (
-                    <p className="text-sm leading-6 text-[color:var(--color-fg-muted)]">
-                      Não há horários livres nesta data. Escolha outro dia ou outro profissional.
-                    </p>
-                  ) : null}
+                  {!loadingSlots && slots.length === 0 && (
+                    <p className="text-sm text-[var(--bk-muted)]">Nenhum horário livre. Tente outra data ou outro profissional.</p>
+                  )}
                 </div>
               </div>
-            </div>
 
-            <aside className="rounded-[30px] border border-[color:var(--color-border-default)] bg-[linear-gradient(180deg,#f8fbff_0%,#eef5ff_100%)] p-5">
-              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[color:var(--color-fg-muted)]">
-                Agenda do profissional
-              </p>
-              <div className="mt-5 space-y-3">
-                {weeklyAgenda.length ? (
-                  weeklyAgenda.map((item) => (
-                    <div key={item.label} className="rounded-2xl border border-white bg-white px-4 py-4">
-                      <p className="text-sm font-semibold text-[color:var(--color-fg-default)]">{item.label}</p>
-                      <p className="mt-1 text-sm leading-6 text-[color:var(--color-fg-muted)]">{item.value}</p>
+              <div className="mt-5 rounded-xl border border-[var(--bk-border)] bg-[var(--bk-bg)] p-4">
+                <div className="mb-3 flex items-start gap-3">
+                  <div className="mt-0.5 flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--bk-accent-dim)] text-[var(--bk-accent)]">
+                    <ShieldCheck size={16} />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-[var(--bk-text)]">Agenda definida pelo profissional</p>
+                    <p className="mt-1 text-sm leading-6 text-[var(--bk-muted)]">
+                      O cliente escolhe apenas entre horários que o profissional deixou disponíveis.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  {weeklyAgenda.length ? (
+                    weeklyAgenda.map((item) => (
+                      <div key={item.label} className="rounded-xl border border-[var(--bk-border)] bg-[var(--bk-surface)] px-4 py-3">
+                        <p className="text-sm font-semibold text-[var(--bk-text)]">{item.label}</p>
+                        <p className="mt-1 text-sm leading-6 text-[var(--bk-muted)]">{item.value}</p>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="rounded-xl border border-[var(--bk-border)] bg-[var(--bk-surface)] px-4 py-3 text-sm text-[var(--bk-muted)]">
+                      Esse profissional ainda não tem agenda pública configurada.
                     </div>
-                  ))
-                ) : (
-                  <div className="rounded-2xl border border-white bg-white px-4 py-4 text-sm text-[color:var(--color-fg-muted)]">
-                    Esse profissional ainda não tem uma agenda pública configurada.
+                  )}
+                </div>
+              </div>
+            </section>
+          </div>
+
+          {/* Right: confirmation form */}
+          <aside className="space-y-4">
+            <div className="rounded-2xl border border-[var(--bk-border)] bg-[var(--bk-surface)] p-5 shadow-[0_1px_8px_rgba(0,0,0,0.05)] lg:sticky lg:top-6">
+              <div className="mb-4 flex items-center gap-3">
+                <StepBadge n={3} active={step3Active} done={false} />
+                <h2 className="text-sm font-semibold text-[var(--bk-text)]">Confirme seus dados</h2>
+              </div>
+
+              {/* Summary */}
+              {summary ? (
+                <div className="mb-4 rounded-xl border border-[var(--bk-border)] bg-[var(--bk-bg)] p-3.5 text-sm">
+                  <div className="flex justify-between gap-3">
+                    <span className="font-medium text-[var(--bk-text)]">{summary.serviceName}</span>
+                    <span className="font-semibold text-[var(--bk-text)]">{formatCurrencyBRL(summary.priceCents)}</span>
+                  </div>
+                  <div className="mt-1.5 flex justify-between gap-3 text-xs text-[var(--bk-muted)]">
+                    <span>{summary.professionalName}</span>
+                    <span>{summary.durationMinutes} min</span>
+                  </div>
+                  {slot && (
+                    <div className="mt-2 flex items-center gap-1.5 rounded-lg border border-[var(--bk-accent)] bg-[var(--bk-accent-dim)] px-2.5 py-1.5 text-xs font-medium" style={{ color: accent }}>
+                      <Clock size={11} />
+                      {formatInTimeZone(slot.startsAt, browserTZ, "dd/MM 'às' HH:mm")}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="mb-4 rounded-xl border border-[var(--bk-border)] bg-[var(--bk-bg)] px-3.5 py-3 text-sm text-[var(--bk-muted)]">
+                  Selecione serviço e horário para ver o resumo.
+                </div>
+              )}
+
+              <form onSubmit={handleSubmit} className="space-y-3">
+                {[
+                  { id: "bk-name", label: "Nome completo", value: name, onChange: (v: string) => setName(v), placeholder: "Seu nome", required: true, type: "text" },
+                  { id: "bk-email", label: "E-mail", value: email, onChange: (v: string) => setEmail(v), placeholder: "voce@email.com", required: false, type: "email" },
+                  { id: "bk-phone", label: "Telefone", value: phone, onChange: (v: string) => setPhone(maskPhone(v)), placeholder: "(11) 99999-0000", required: true, type: "tel" },
+                ].map((field) => (
+                  <div key={field.id}>
+                    <label htmlFor={field.id} className="mb-1 block text-xs font-medium text-[var(--bk-muted)]">{field.label}</label>
+                    <input
+                      id={field.id}
+                      type={field.type}
+                      value={field.value}
+                      onChange={(e) => field.onChange(e.target.value)}
+                      placeholder={field.placeholder}
+                      required={field.required}
+                      className="h-10 w-full rounded-xl border border-[var(--bk-border)] bg-[var(--bk-bg)] px-3 text-sm text-[var(--bk-text)] placeholder:text-[var(--bk-faint)] focus:border-[var(--bk-accent)] focus:outline-none transition-colors"
+                    />
+                  </div>
+                ))}
+
+                <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-[var(--bk-border)] bg-[var(--bk-bg)] p-3 text-xs leading-5 text-[var(--bk-muted)]">
+                  <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} className="mt-0.5 accent-[var(--bk-accent)]" />
+                  Autorizo o uso dos meus dados para este agendamento e confirmações.
+                </label>
+
+                {props.cancellationPolicyText && (
+                  <div className="rounded-xl border border-[var(--bk-border)] bg-[var(--bk-bg)] p-3 text-xs leading-5 text-[var(--bk-muted)]">
+                    <p className="mb-1 font-medium text-[var(--bk-text)]">Política de cancelamento</p>
+                    {props.cancellationPolicyText}
                   </div>
                 )}
-              </div>
-            </aside>
-          </div>
-        </section>
-      </section>
 
-      <aside className="space-y-6">
-        <div className="rounded-[32px] border border-[color:var(--color-border-default)] bg-white p-6 shadow-[0_12px_28px_rgba(15,23,42,0.05)] md:sticky md:top-6 md:p-8">
-          <p className="text-sm font-semibold uppercase tracking-[0.24em] text-[color:var(--color-fg-muted)]">
-            Passo 3
-          </p>
-          <h2 className="mt-3 text-2xl font-semibold text-[color:var(--color-fg-default)]">
-            Confirme seus dados
-          </h2>
+                {error && <p className="rounded-xl border border-red-100 bg-red-50 px-3 py-2.5 text-xs text-red-600">{error}</p>}
 
-          <div className="mt-6 rounded-[28px] border border-[color:var(--color-border-default)] bg-slate-50 p-5 text-sm text-[color:var(--color-fg-muted)]">
-            {selectedService && selectedProfessional ? (
-              <div className="space-y-3">
-                <div className="flex items-center justify-between gap-3">
-                  <span>Serviço</span>
-                  <strong className="text-[color:var(--color-fg-default)]">{selectedService.name}</strong>
-                </div>
-                <div className="flex items-center justify-between gap-3">
-                  <span>Profissional</span>
-                  <span className="font-medium text-[color:var(--color-fg-default)]">{selectedProfessional.displayName}</span>
-                </div>
-                <div className="flex items-center justify-between gap-3">
-                  <span>Duração</span>
-                  <span>{selectedService.durationMinutes} min</span>
-                </div>
-                <div className="flex items-center justify-between gap-3">
-                  <span>Valor</span>
-                  <span className="font-semibold text-[color:var(--color-fg-default)]">{formatCurrencyBRL(selectedService.priceCents)}</span>
-                </div>
-                <div className="flex items-center justify-between gap-3">
-                  <span>Horário</span>
-                  <span className="font-medium text-[color:var(--color-fg-default)]">
-                    {selectedSlot ? formatInTimeZone(selectedSlot.startsAt, browserTimezone, "dd/MM 'às' HH:mm") : "Escolha acima"}
-                  </span>
-                </div>
-              </div>
-            ) : (
-              <p>Escolha serviço, profissional e horário para montar o resumo.</p>
-            )}
-          </div>
-
-          <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-[color:var(--color-fg-default)]" htmlFor="customerName">Nome completo</label>
-              <Input id="customerName" value={customerName} onChange={(event) => setCustomerName(event.target.value)} placeholder="Seu nome" required />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-[color:var(--color-fg-default)]" htmlFor="customerEmail">E-mail</label>
-              <Input id="customerEmail" type="email" value={customerEmail} onChange={(event) => setCustomerEmail(event.target.value)} placeholder="voce@email.com" />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-[color:var(--color-fg-default)]" htmlFor="customerPhone">Telefone</label>
-              <Input id="customerPhone" inputMode="numeric" value={customerPhone} onChange={(event) => setCustomerPhone(maskPhone(event.target.value))} placeholder="(11) 99999-0000" required />
+                <button
+                  type="submit"
+                  disabled={submitting || !slot || !consent}
+                  className="flex h-11 w-full items-center justify-center gap-2 rounded-full text-sm font-semibold text-[var(--bk-accent-fg)] transition-all disabled:opacity-40"
+                  style={{ background: accent }}
+                >
+                  {submitting ? "Confirmando..." : (<><ChevronRight size={16} /> Confirmar agendamento</>)}
+                </button>
+              </form>
             </div>
 
-            <label className="flex items-start gap-3 rounded-[24px] border border-[color:var(--color-border-default)] bg-slate-50 p-4 text-sm leading-6 text-[color:var(--color-fg-muted)]">
-              <input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} className="mt-1" />
-              <span>Autorizo o uso dos meus dados para realizar este agendamento e receber confirmações.</span>
-            </label>
-
-            {props.cancellationPolicyText ? (
-              <div className="rounded-[24px] border border-[color:var(--color-border-default)] bg-white p-4 text-sm leading-6 text-[color:var(--color-fg-muted)]">
-                <p className="font-medium text-[color:var(--color-fg-default)]">Política de cancelamento</p>
-                <p className="mt-2">{props.cancellationPolicyText}</p>
-              </div>
-            ) : null}
-
-            {error ? <p className="rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p> : null}
-
-            <Button className="w-full" size="lg" disabled={submitting || !selectedSlot || !consent || !selectedProfessional}>
-              {submitting ? "Confirmando..." : "Confirmar agendamento"}
-            </Button>
-          </form>
-        </div>
-
-        <div className="rounded-[32px] border border-[color:var(--color-border-default)] bg-white p-6 shadow-[0_12px_28px_rgba(15,23,42,0.05)]">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <h2 className="text-2xl font-semibold text-[color:var(--color-fg-default)]">Avaliações</h2>
-              <p className="mt-2 text-sm text-[color:var(--color-fg-muted)]">Opiniões de clientes que já passaram por aqui.</p>
-            </div>
-            <div className="flex items-center gap-1 rounded-full bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-700">
-              <Star className="h-4 w-4 fill-current" />
-              {props.reviews.length ? (props.reviews.reduce((sum, review) => sum + review.rating, 0) / props.reviews.length).toFixed(1) : "Novo"}
-            </div>
-          </div>
-
-          <div className="mt-5 space-y-4">
-            {props.reviews.length ? (
-              props.reviews.map((review) => (
-                <article key={review.id} className="rounded-[24px] border border-[color:var(--color-border-default)] bg-slate-50 p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="font-medium text-[color:var(--color-fg-default)]">{review.customerNameSnapshot}</p>
-                    <div className="flex items-center gap-1 text-amber-500">
-                      {Array.from({ length: 5 }).map((_, index) => (
-                        <Star key={`${review.id}-${index}`} className={cn("h-4 w-4", index < review.rating ? "fill-current" : "")} />
-                      ))}
+            {/* Reviews */}
+            {props.reviews.length > 0 && (
+              <div className="rounded-2xl border border-[var(--bk-border)] bg-[var(--bk-surface)] p-5 shadow-[0_1px_8px_rgba(0,0,0,0.05)]">
+                <div className="mb-3 flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-[var(--bk-text)]">Avaliações</h3>
+                  {avgRating && (
+                    <span className="flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700">
+                      <Star size={11} className="fill-current" />{avgRating.toFixed(1)}
+                    </span>
+                  )}
+                </div>
+                <div className="space-y-3">
+                  {props.reviews.slice(0, 3).map((r) => (
+                    <div key={r.id} className="rounded-xl border border-[var(--bk-border)] bg-[var(--bk-bg)] p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-xs font-medium text-[var(--bk-text)]">{r.customerNameSnapshot}</p>
+                        <div className="flex gap-0.5">
+                          {Array.from({ length: 5 }).map((_, i) => (
+                            <Star key={i} size={10} className={i < r.rating ? "fill-amber-400 text-amber-400" : "text-[var(--bk-border-2)]"} />
+                          ))}
+                        </div>
+                      </div>
+                      {r.body && <p className="mt-1.5 text-xs leading-5 text-[var(--bk-muted)]">{r.body}</p>}
                     </div>
-                  </div>
-                  {review.body ? <p className="mt-3 text-sm leading-6 text-[color:var(--color-fg-muted)]">{review.body}</p> : null}
-                </article>
-              ))
-            ) : (
-              <p className="text-sm leading-6 text-[color:var(--color-fg-muted)]">
-                As primeiras avaliações vão aparecer aqui assim que os atendimentos forem concluídos.
-              </p>
+                  ))}
+                </div>
+              </div>
             )}
-          </div>
+          </aside>
         </div>
-      </aside>
+      </div>
     </div>
   );
 }
