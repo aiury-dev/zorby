@@ -13,38 +13,32 @@ import {
 
 const highlights = [
   {
-    title: "Página pública pronta para conversão",
+    title: "Pagina publica pronta para conversao",
     description: "Seu cliente agenda em poucos cliques, no celular ou no desktop.",
     icon: CalendarDays,
   },
   {
-    title: "Confirmações e lembretes automáticos",
+    title: "Confirmacoes e lembretes automaticos",
     description: "Menos faltas, menos mensagens manuais e mais previsibilidade na agenda.",
     icon: BellRing,
   },
   {
-    title: "Painel para operação completa",
-    description: "Agenda, clientes, serviços, profissionais e cobrança no mesmo lugar.",
+    title: "Painel para operacao completa",
+    description: "Agenda, clientes, servicos, profissionais e cobranca no mesmo lugar.",
     icon: LayoutDashboard,
   },
 ];
 
-const segments = [
-  "Clínicas",
-  "Salões de beleza",
-  "Barbearias",
-  "Consultórios",
-  "Estúdios e especialistas",
-];
+const segments = ["Clinicas", "Saloes de beleza", "Barbearias", "Consultorios", "Estudios e especialistas"];
 
 const metrics = [
   {
     value: "- faltas",
-    description: "Lembretes automáticos por e-mail e WhatsApp para reduzir esquecimentos.",
+    description: "Lembretes automaticos por e-mail e WhatsApp para reduzir esquecimentos.",
   },
   {
     value: "+ reservas",
-    description: "Página responsiva própria, pronta para bio, Google e divulgação.",
+    description: "Pagina responsiva propria, pronta para bio, Google e divulgacao.",
   },
 ];
 
@@ -58,16 +52,16 @@ export default function Home() {
           <div className="max-w-3xl space-y-8">
             <div className="inline-flex items-center gap-2 rounded-full border border-[rgba(37,99,235,0.18)] bg-[rgba(37,99,235,0.08)] px-4 py-2 text-sm font-medium text-[color:var(--color-brand-600)] shadow-[var(--shadow-sm)] backdrop-blur">
               <Sparkles className="size-4" />
-              Agendamento online para negócios locais
+              Agendamento online para negocios locais
             </div>
 
             <div className="space-y-5">
               <h1 className="max-w-[10.5ch] text-[3.3rem] font-black leading-[0.92] tracking-[-0.065em] text-[color:var(--color-fg-default)] md:text-[4.6rem] xl:text-[5.8rem]">
-                Seu negócio disponível 24h para novos agendamentos.
+                Seu negocio disponivel 24h para novos agendamentos.
               </h1>
               <p className="max-w-2xl text-lg leading-9 text-[color:var(--color-fg-muted)] md:text-xl">
-                O Zorby ajuda clínicas, salões e profissionais autônomos a organizar a agenda,
-                reduzir faltas e captar reservas sem depender de WhatsApp o dia inteiro.
+                O Zorby ajuda clinicas, saloes e profissionais autonomos a organizar a agenda, reduzir faltas e captar
+                reservas sem depender de WhatsApp o dia inteiro.
               </p>
             </div>
 
@@ -78,11 +72,9 @@ export default function Home() {
                     <Store className="size-5" />
                   </div>
                   <div>
-                    <p className="text-sm font-semibold text-[color:var(--color-fg-default)]">
-                      Sou empresa ou profissional
-                    </p>
+                    <p className="text-sm font-semibold text-[color:var(--color-fg-default)]">Sou empresa ou profissional</p>
                     <p className="mt-1 text-sm leading-6 text-[color:var(--color-fg-muted)]">
-                      Quero usar o Zorby para operar agenda, serviços, clientes e cobrança.
+                      Quero usar o Zorby para operar agenda, servicos, clientes e cobranca.
                     </p>
                   </div>
                 </div>
@@ -91,7 +83,7 @@ export default function Home() {
                     href="/cadastro"
                     className="inline-flex h-12 min-w-[168px] items-center justify-center gap-2 rounded-[18px] bg-[color:var(--color-brand-500)] px-6 text-center text-sm font-semibold leading-none text-white shadow-[0_18px_40px_rgba(37,99,235,0.24)] transition hover:bg-[color:var(--color-brand-600)]"
                   >
-                    Criar conta grátis
+                    Criar conta gratis
                     <ArrowRight className="size-4" />
                   </Link>
                   <Link
@@ -109,11 +101,9 @@ export default function Home() {
                     <UserRoundSearch className="size-5" />
                   </div>
                   <div>
-                    <p className="text-sm font-semibold text-[color:var(--color-fg-default)]">
-                      Sou cliente e quero agendar
-                    </p>
+                    <p className="text-sm font-semibold text-[color:var(--color-fg-default)]">Sou cliente e quero agendar</p>
                     <p className="mt-1 text-sm leading-6 text-[color:var(--color-fg-muted)]">
-                      Quero explorar empresas, serviços e escolher um horário disponível.
+                      Quero explorar empresas, servicos e escolher um horario disponivel.
                     </p>
                   </div>
                 </div>
@@ -141,12 +131,8 @@ export default function Home() {
                     <div className="flex size-11 items-center justify-center rounded-2xl bg-blue-50 text-[color:var(--color-brand-500)]">
                       <Icon className="size-5" />
                     </div>
-                    <h2 className="mt-4 text-sm font-semibold text-[color:var(--color-fg-default)]">
-                      {highlight.title}
-                    </h2>
-                    <p className="mt-2 text-sm leading-6 text-[color:var(--color-fg-muted)]">
-                      {highlight.description}
-                    </p>
+                    <h2 className="mt-4 text-sm font-semibold text-[color:var(--color-fg-default)]">{highlight.title}</h2>
+                    <p className="mt-2 text-sm leading-6 text-[color:var(--color-fg-muted)]">{highlight.description}</p>
                   </article>
                 );
               })}
@@ -157,15 +143,13 @@ export default function Home() {
             <div className="relative overflow-hidden rounded-[36px] border border-white/70 bg-white/92 p-6 shadow-[var(--shadow-lg)] backdrop-blur md:p-8">
               <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
                 <div className="max-w-[32rem]">
-                  <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[color:var(--color-fg-muted)]">
-                    Feito para
-                  </p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[color:var(--color-fg-muted)]">Feito para</p>
                   <h2 className="mt-3 max-w-[14ch] text-[2.35rem] font-black leading-[1.02] tracking-[-0.055em] text-[color:var(--color-fg-default)] md:text-[3rem]">
-                    Operações que precisam de agenda organizada
+                    Operacoes que precisam de agenda organizada
                   </h2>
                 </div>
                 <div className="inline-flex items-center rounded-full bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700">
-                  14 dias grátis
+                  14 dias gratis
                 </div>
               </div>
 
@@ -184,7 +168,7 @@ export default function Home() {
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <p className="text-sm text-white/65">Exemplo de valor entregue</p>
-                    <h3 className="mt-2 text-2xl font-black tracking-[-0.04em]">Menos ruído, mais reservas</h3>
+                    <h3 className="mt-2 text-2xl font-black tracking-[-0.04em]">Menos ruido, mais reservas</h3>
                   </div>
                   <div className="rounded-2xl border border-white/10 bg-white/10 p-3">
                     <ChartNoAxesCombined className="size-5" />
@@ -193,10 +177,7 @@ export default function Home() {
 
                 <div className="mt-6 grid gap-4 sm:grid-cols-2">
                   {metrics.map((metric) => (
-                    <div
-                      key={metric.value}
-                      className="rounded-[24px] border border-white/10 bg-white/10 p-4 backdrop-blur"
-                    >
+                    <div key={metric.value} className="rounded-[24px] border border-white/10 bg-white/10 p-4 backdrop-blur">
                       <p className="text-3xl font-black tracking-[-0.04em]">{metric.value}</p>
                       <p className="mt-3 text-sm leading-7 text-white/72">{metric.description}</p>
                     </div>
@@ -211,8 +192,7 @@ export default function Home() {
                     <div>
                       <p className="text-sm font-semibold">Pronto para desktop e mobile</p>
                       <p className="mt-1 text-sm leading-6 text-white/72">
-                        A experiência é pensada para quem gerencia a operação no computador e para o
-                        cliente que agenda pelo celular.
+                        A experiencia e pensada para quem gerencia a operacao no computador e para o cliente que agenda pelo celular.
                       </p>
                     </div>
                   </div>
@@ -221,26 +201,16 @@ export default function Home() {
 
               <div className="mt-6 grid gap-3 sm:grid-cols-3">
                 <div className="rounded-[22px] border border-[color:var(--color-border-default)] bg-slate-50 px-4 py-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[color:var(--color-fg-muted)]">
-                    Agenda
-                  </p>
-                  <p className="mt-2 text-sm font-semibold text-[color:var(--color-fg-default)]">Disponível 24h</p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[color:var(--color-fg-muted)]">Agenda</p>
+                  <p className="mt-2 text-sm font-semibold text-[color:var(--color-fg-default)]">Disponivel 24h</p>
                 </div>
                 <div className="rounded-[22px] border border-[color:var(--color-border-default)] bg-slate-50 px-4 py-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[color:var(--color-fg-muted)]">
-                    Fluxo
-                  </p>
-                  <p className="mt-2 text-sm font-semibold text-[color:var(--color-fg-default)]">
-                    Reserva em poucos cliques
-                  </p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[color:var(--color-fg-muted)]">Fluxo</p>
+                  <p className="mt-2 text-sm font-semibold text-[color:var(--color-fg-default)]">Reserva em poucos cliques</p>
                 </div>
                 <div className="rounded-[22px] border border-[color:var(--color-border-default)] bg-slate-50 px-4 py-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[color:var(--color-fg-muted)]">
-                    Operação
-                  </p>
-                  <p className="mt-2 text-sm font-semibold text-[color:var(--color-fg-default)]">
-                    Painel de gestão unificado
-                  </p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[color:var(--color-fg-muted)]">Operacao</p>
+                  <p className="mt-2 text-sm font-semibold text-[color:var(--color-fg-default)]">Painel de gestao unificado</p>
                 </div>
               </div>
             </div>
