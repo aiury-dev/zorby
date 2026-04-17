@@ -4,19 +4,16 @@ import { useEffect, useMemo, useState } from "react";
 import { addDays } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
 import {
-  Star,
+  CalendarDays,
+  Check,
+  ChevronRight,
+  Clock3,
+  Download,
   MapPin,
   Phone,
-  Clock,
-  ChevronRight,
-  Check,
-  Calendar,
-  Download,
+  Search,
   ShieldCheck,
-  Scissors,
-  ChevronDown,
-  ChevronUp,
-  X,
+  Star,
 } from "lucide-react";
 import { cn, formatCurrencyBRL } from "@/lib/utils";
 
@@ -70,13 +67,16 @@ type BookingExperienceProps = {
 };
 
 type AvailabilitySlot = { startsAt: string; endsAt: string; label: string };
+type SectionTab = "services" | "reviews" | "details";
 
 const browserTZ =
   typeof Intl !== "undefined"
     ? Intl.DateTimeFormat().resolvedOptions().timeZone
     : "America/Sao_Paulo";
 
-const weekdayLabels = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"];
+const weekdayShort = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
+const weekdayFull = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
+const monthShort = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
 
 function maskPhone(value: string) {
   const digits = value.replace(/\D/g, "").slice(0, 11);
@@ -86,65 +86,127 @@ function maskPhone(value: string) {
   return digits.replace(/(\d{2})(\d{5})(\d+)/, "($1) $2-$3");
 }
 
-function formatMinutes(minutes: number) {
-  return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
-}
-
 function buildDateOptions(timezone: string) {
-  const ptDayNames = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
-  const ptMonthNames = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
   return Array.from({ length: 14 }).map((_, index) => {
     const date = addDays(new Date(), index);
-    const isoValue = formatInTimeZone(date, timezone, "yyyy-MM-dd");
-    const dayName = ptDayNames[date.getDay()];
-    const dayNum = date.getDate();
-    const monthName = ptMonthNames[date.getMonth()];
-    return { value: isoValue, dayName, dayNum, monthName, isToday: index === 0, isTomorrow: index === 1 };
+    return {
+      value: formatInTimeZone(date, timezone, "yyyy-MM-dd"),
+      weekdayShort: weekdayShort[date.getDay()],
+      weekdayFull: weekdayFull[date.getDay()],
+      dayNumber: date.getDate(),
+      month: monthShort[date.getMonth()],
+      isToday: index === 0,
+      isTomorrow: index === 1,
+    };
   });
 }
 
-function buildGoogleCalUrl(input: { title: string; details: string; location: string; startsAt: string; endsAt: string }) {
-  const fmt = (v: string) => v.replace(/[-:]/g, "").replace(".000Z", "Z");
-  return `https://calendar.google.com/calendar/render?${new URLSearchParams({ action: "TEMPLATE", text: input.title, details: input.details, location: input.location, dates: `${fmt(input.startsAt)}/${fmt(input.endsAt)}` })}`;
+function buildGoogleCalUrl(input: {
+  title: string;
+  details: string;
+  location: string;
+  startsAt: string;
+  endsAt: string;
+}) {
+  const fmt = (value: string) => value.replace(/[-:]/g, "").replace(".000Z", "Z");
+  return `https://calendar.google.com/calendar/render?${new URLSearchParams({
+    action: "TEMPLATE",
+    text: input.title,
+    details: input.details,
+    location: input.location,
+    dates: `${fmt(input.startsAt)}/${fmt(input.endsAt)}`,
+  })}`;
 }
 
-function buildIcs(input: { title: string; description: string; location: string; startsAt: string; endsAt: string }) {
-  const fmt = (v: string) => v.replace(/[-:]/g, "").replace(".000Z", "Z");
-  const content = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Zorby//PT-BR", "BEGIN:VEVENT", `DTSTART:${fmt(input.startsAt)}`, `DTEND:${fmt(input.endsAt)}`, `SUMMARY:${input.title}`, `DESCRIPTION:${input.description}`, `LOCATION:${input.location}`, "END:VEVENT", "END:VCALENDAR"].join("\n");
+function buildIcs(input: {
+  title: string;
+  description: string;
+  location: string;
+  startsAt: string;
+  endsAt: string;
+}) {
+  const fmt = (value: string) => value.replace(/[-:]/g, "").replace(".000Z", "Z");
+  const content = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//Zorby//PT-BR",
+    "BEGIN:VEVENT",
+    `DTSTART:${fmt(input.startsAt)}`,
+    `DTEND:${fmt(input.endsAt)}`,
+    `SUMMARY:${input.title}`,
+    `DESCRIPTION:${input.description}`,
+    `LOCATION:${input.location}`,
+    "END:VEVENT",
+    "END:VCALENDAR",
+  ].join("\n");
   return `data:text/calendar;charset=utf-8,${encodeURIComponent(content)}`;
 }
 
-function Avatar({ name, photo, size = 40 }: { name: string; photo?: string | null; size?: number }) {
-  const initials = name.split(" ").slice(0, 2).map((w) => w[0]).join("").toUpperCase();
-  if (photo)
-    return <img src={photo} alt={name} width={size} height={size} className="rounded-full object-cover flex-shrink-0" style={{ width: size, height: size }} />;
-  return (
-    <div className="bk-avatar flex items-center justify-center rounded-full flex-shrink-0" style={{ width: size, height: size, fontSize: size * 0.36, fontWeight: 700 }}>
-      {initials}
-    </div>
-  );
-}
+function Avatar({
+  name,
+  photo,
+  size = 40,
+}: {
+  name: string;
+  photo?: string | null;
+  size?: number;
+}) {
+  const initials = name
+    .split(" ")
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase();
 
-function StepHeader({ n, label, done, active }: { n: number; label: string; done: boolean; active: boolean }) {
+  if (photo) {
+    return (
+      <img
+        src={photo}
+        alt={name}
+        width={size}
+        height={size}
+        className="rounded-full object-cover flex-shrink-0"
+        style={{ width: size, height: size }}
+      />
+    );
+  }
+
   return (
-    <div className="flex items-center gap-3 mb-5">
-      <div className={cn("flex items-center justify-center rounded-full text-xs font-bold transition-all", done ? "bk-step-done" : active ? "bk-step-active" : "bk-step-idle")} style={{ width: 28, height: 28 }}>
-        {done ? <Check size={13} strokeWidth={3} /> : n}
-      </div>
-      <h2 className="bk-text text-sm font-bold">{label}</h2>
-      {done && <span className="ml-auto text-xs font-semibold" style={{ color: "var(--bk-accent)" }}>✓ Pronto</span>}
+    <div
+      className="bk-avatar flex items-center justify-center rounded-full flex-shrink-0"
+      style={{ width: size, height: size, fontSize: size * 0.34, fontWeight: 700 }}
+    >
+      {initials}
     </div>
   );
 }
 
 function StarRating({ rating, count }: { rating: number; count: number }) {
   return (
-    <span className="bk-rating-badge inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold">
-      <Star size={11} className="fill-current" />
+    <span className="bk-rating-badge inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold">
+      <Star size={12} className="fill-current" />
       {rating.toFixed(1)}
       <span className="font-normal opacity-70">({count})</span>
     </span>
   );
+}
+
+function distributionFor(reviews: BookingExperienceProps["reviews"]) {
+  return [5, 4, 3, 2, 1].map((star) => {
+    const count = reviews.filter((review) => review.rating === star).length;
+    return {
+      star,
+      count,
+      percent: reviews.length ? (count / reviews.length) * 100 : 0,
+    };
+  });
+}
+
+function dayAvailabilityTone(count: number) {
+  if (count >= 10) return "var(--color-success)";
+  if (count >= 6) return "var(--color-warning)";
+  if (count >= 1) return "#f59e0b";
+  return "var(--bk-border)";
 }
 
 export function BookingExperience(props: BookingExperienceProps) {
@@ -154,53 +216,67 @@ export function BookingExperience(props: BookingExperienceProps) {
 
   const [serviceId, setServiceId] = useState(props.services[0]?.id ?? "");
   const [variantId, setVariantId] = useState("");
-  const [proId, setProId] = useState("");
+  const [professionalId, setProfessionalId] = useState("");
   const [date, setDate] = useState(dateOptions[0]?.value ?? "");
   const [slots, setSlots] = useState<AvailabilitySlot[]>([]);
   const [slot, setSlot] = useState<AvailabilitySlot | null>(null);
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<null | { appointmentId: string; startsAt: string; cancelToken: string; rescheduleToken: string }>(null);
+  const [success, setSuccess] = useState<null | {
+    appointmentId: string;
+    startsAt: string;
+    cancelToken: string;
+    rescheduleToken: string;
+  }>(null);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [consent, setConsent] = useState(true);
-  const [showAllReviews, setShowAllReviews] = useState(false);
-  const [showSchedule, setShowSchedule] = useState(false);
-  const [mobileStep, setMobileStep] = useState<"booking" | "form">("booking");
+  const [serviceSearch, setServiceSearch] = useState("");
+  const [activeSection, setActiveSection] = useState<SectionTab>("services");
 
-  const service = props.services.find((s) => s.id === serviceId) ?? null;
-  const variant = service?.variants.find((v) => v.id === variantId) ?? null;
+  const service = props.services.find((item) => item.id === serviceId) ?? null;
+  const variant = service?.variants.find((item) => item.id === variantId) ?? null;
+
+  const filteredServices = useMemo(() => {
+    const query = serviceSearch.trim().toLowerCase();
+    if (!query) return props.services;
+    return props.services.filter((item) => {
+      return (
+        item.name.toLowerCase().includes(query) ||
+        item.description?.toLowerCase().includes(query) ||
+        item.variants.some((entry) => entry.name.toLowerCase().includes(query))
+      );
+    });
+  }, [props.services, serviceSearch]);
 
   const availableProfessionals = useMemo(() => {
-    if (!serviceId) return props.professionals.filter((p) => p.availabilities.length > 0);
-    return props.professionals.filter((p) => {
-      if (!p.availabilities.length) return false;
-      if (!p.services.length) return true;
-      return p.services.some((s) => s.serviceId === serviceId);
+    if (!serviceId) {
+      return props.professionals.filter((professional) => professional.availabilities.length > 0);
+    }
+
+    return props.professionals.filter((professional) => {
+      if (!professional.availabilities.length) return false;
+      if (!professional.services.length) return true;
+      return professional.services.some((entry) => entry.serviceId === serviceId);
     });
   }, [props.professionals, serviceId]);
 
   useEffect(() => {
-    if (!availableProfessionals.length) { setProId(""); return; }
-    if (!availableProfessionals.some((p) => p.id === proId)) {
-      setProId(availableProfessionals[0]?.id ?? "");
+    if (!availableProfessionals.length) {
+      setProfessionalId("");
+      return;
+    }
+
+    if (!availableProfessionals.some((professional) => professional.id === professionalId)) {
+      setProfessionalId(availableProfessionals[0]?.id ?? "");
       setSlot(null);
     }
-  }, [availableProfessionals, proId]);
+  }, [availableProfessionals, professionalId]);
 
-  const professional = availableProfessionals.find((p) => p.id === proId) ?? null;
-  const avgRating = props.reviews.length ? props.reviews.reduce((s, r) => s + r.rating, 0) / props.reviews.length : null;
-
-  const weeklyAgenda = useMemo(() => {
-    if (!professional?.availabilities.length) return [];
-    return weekdayLabels.map((label, index) => {
-      const daySlots = professional.availabilities.filter((item) => item.dayOfWeek === index);
-      if (!daySlots.length) return null;
-      return { label, value: daySlots.map((item) => `${formatMinutes(item.startMinutes)} – ${formatMinutes(item.endMinutes)}`).join(" • ") };
-    }).filter(Boolean) as Array<{ label: string; value: string }>;
-  }, [professional]);
+  const professional =
+    availableProfessionals.find((item) => item.id === professionalId) ?? null;
 
   const summary = useMemo(() => {
     if (!service || !professional) return null;
@@ -212,89 +288,217 @@ export function BookingExperience(props: BookingExperienceProps) {
     };
   }, [professional, service, variant]);
 
-  const step1Done = !!serviceId;
-  const step2Done = !!slot;
-  const step3Active = step1Done && step2Done;
+  const location = [props.neighborhood, props.city].filter(Boolean).join(", ") || props.name;
+  const averageRating = props.reviews.length
+    ? props.reviews.reduce((sum, review) => sum + review.rating, 0) / props.reviews.length
+    : null;
+  const reviewsDistribution = distributionFor(props.reviews);
+
+  const weeklyAgenda = useMemo(() => {
+    if (!professional?.availabilities.length) return [];
+    return weekdayFull
+      .map((label, index) => {
+        const dayItems = professional.availabilities.filter((item) => item.dayOfWeek === index);
+        if (!dayItems.length) return null;
+        return {
+          label,
+          value: dayItems
+            .map((item) => {
+              const startHours = String(Math.floor(item.startMinutes / 60)).padStart(2, "0");
+              const startMinutesPart = String(item.startMinutes % 60).padStart(2, "0");
+              const endHours = String(Math.floor(item.endMinutes / 60)).padStart(2, "0");
+              const endMinutesPart = String(item.endMinutes % 60).padStart(2, "0");
+              return `${startHours}:${startMinutesPart} – ${endHours}:${endMinutesPart}`;
+            })
+            .join(" • "),
+        };
+      })
+      .filter(Boolean) as Array<{ label: string; value: string }>;
+  }, [professional]);
 
   useEffect(() => {
-    if (!serviceId || !proId || !date) { setSlots([]); return; }
+    if (!serviceId || !professionalId || !date) {
+      setSlots([]);
+      return;
+    }
+
     let cancelled = false;
     setLoadingSlots(true);
     setError(null);
-    const params = new URLSearchParams({ date, serviceId, professionalId: proId, timezone: browserTZ });
+
+    const params = new URLSearchParams({
+      date,
+      serviceId,
+      professionalId,
+      timezone: browserTZ,
+    });
+
     fetch(`/api/public/${props.slug}/availability?${params}`, { cache: "no-store" })
-      .then((r) => r.json())
+      .then((response) => response.json())
       .then((data) => {
+        if (cancelled) return;
+        const nextSlots = data.slots ?? [];
+        setSlots(nextSlots);
+        setSlot((current) =>
+          nextSlots.find((entry: AvailabilitySlot) => entry.startsAt === current?.startsAt) ?? null,
+        );
+      })
+      .catch(() => {
         if (!cancelled) {
-          setSlots(data.slots ?? []);
-          setSlot((cur) => data.slots?.find((s: AvailabilitySlot) => s.startsAt === cur?.startsAt) ?? null);
+          setError("Não foi possível carregar os horários agora.");
         }
       })
-      .catch(() => { if (!cancelled) setError("Não foi possível carregar os horários."); })
-      .finally(() => { if (!cancelled) setLoadingSlots(false); });
-    return () => { cancelled = true; };
-  }, [props.slug, date, proId, serviceId]);
+      .finally(() => {
+        if (!cancelled) {
+          setLoadingSlots(false);
+        }
+      });
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!slot || !service || !professional) { setError("Escolha um horário disponível antes de confirmar."); return; }
-    setSubmitting(true); setError(null);
+    return () => {
+      cancelled = true;
+    };
+  }, [date, professionalId, props.slug, serviceId]);
+
+  async function handleSubmit(event: React.FormEvent) {
+    event.preventDefault();
+
+    if (!service || !professional || !slot) {
+      setError("Escolha um serviço, profissional e horário antes de continuar.");
+      return;
+    }
+
+    setSubmitting(true);
+    setError(null);
+
     try {
-      const res = await fetch(`/api/public/${props.slug}/book`, {
+      const response = await fetch(`/api/public/${props.slug}/book`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ serviceId: service.id, serviceVariantId: variant?.id, professionalId: professional.id, startsAt: slot.startsAt, customerName: name, customerEmail: email, customerPhone: phone.replace(/\D/g, ""), customerTimezone: browserTZ, consent }),
+        body: JSON.stringify({
+          serviceId: service.id,
+          serviceVariantId: variant?.id,
+          professionalId: professional.id,
+          startsAt: slot.startsAt,
+          customerName: name,
+          customerEmail: email,
+          customerPhone: phone.replace(/\D/g, ""),
+          customerTimezone: browserTZ,
+          consent,
+        }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Não foi possível concluir o agendamento.");
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error ?? "Não foi possível concluir o agendamento.");
+      }
+
       setSuccess(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Falha ao concluir.");
-    } finally { setSubmitting(false); }
+    } catch (submitError) {
+      setError(
+        submitError instanceof Error
+          ? submitError.message
+          : "Não foi possível confirmar o agendamento.",
+      );
+    } finally {
+      setSubmitting(false);
+    }
   }
 
-  const location = [props.neighborhood, props.city].filter(Boolean).join(", ") || props.name;
-  const displayedReviews = showAllReviews ? props.reviews : props.reviews.slice(0, 3);
+  const daySlotCounts = useMemo(() => {
+    const count = slots.length;
+    return dateOptions.reduce<Record<string, number>>((acc, item) => {
+      acc[item.value] = item.value === date ? count : 0;
+      return acc;
+    }, {});
+  }, [date, dateOptions, slots.length]);
 
-  // ── SUCCESS SCREEN ────────────────────────────────────────────────────────
   if (success && summary && slot) {
-    const calTitle = `${summary.serviceName} com ${summary.professionalName}`;
+    const title = `${summary.serviceName} com ${summary.professionalName}`;
     return (
-      <div data-booking className="min-h-screen px-4 py-10 md:py-20 flex items-start justify-center" style={{ "--bk-accent": accent, "--bk-accent-dim": accentDim } as React.CSSProperties}>
-        <div className="w-full max-w-md">
-          {props.logoUrl && <img src={props.logoUrl} alt={props.name} className="h-9 object-contain mb-8" />}
-          <div className="bk-card rounded-3xl p-8">
-            <div className="flex items-center justify-center rounded-full mb-6" style={{ width: 56, height: 56, background: accent }}>
+      <div
+        data-booking
+        className="min-h-screen px-4 py-8 md:px-6 md:py-14"
+        style={{ "--bk-accent": accent, "--bk-accent-dim": accentDim } as React.CSSProperties}
+      >
+        <div className="mx-auto w-full max-w-xl">
+          <div className="bk-card rounded-[32px] p-6 md:p-8">
+            <div
+              className="mb-5 flex size-14 items-center justify-center rounded-full"
+              style={{ background: accent }}
+            >
               <Check size={24} className="text-white" strokeWidth={2.5} />
             </div>
-            <h1 className="bk-text text-2xl font-black mb-2">Agendamento confirmado!</h1>
-            <p className="bk-muted text-sm leading-6 mb-8">Seu horário está reservado. Confira os detalhes abaixo.</p>
-            <div className="bk-summary-box rounded-2xl overflow-hidden mb-6 space-y-0">
+
+            <h1 className="bk-text text-3xl font-black tracking-[-0.04em]">
+              Agendamento confirmado
+            </h1>
+            <p className="bk-muted mt-2 text-sm leading-6">
+              Tudo certo. Seu horário já está reservado e pronto para entrar na agenda.
+            </p>
+
+            <div className="bk-summary-box mt-6 overflow-hidden rounded-[24px]">
               {[
                 ["Serviço", summary.serviceName],
                 ["Profissional", summary.professionalName],
-                ["Data e hora", formatInTimeZone(success.startsAt, browserTZ, "dd/MM/yyyy 'às' HH:mm")],
+                [
+                  "Data e hora",
+                  formatInTimeZone(success.startsAt, browserTZ, "dd/MM/yyyy 'às' HH:mm"),
+                ],
                 ["Valor", formatCurrencyBRL(summary.priceCents)],
                 ["Duração", `${summary.durationMinutes} min`],
-              ].map(([label, value], i) => (
-                <div key={label} className={cn("flex items-start justify-between gap-4 px-4 py-3.5 text-sm", i !== 0 && "bk-divider-top")}>
+              ].map(([label, value], index) => (
+                <div
+                  key={label}
+                  className={cn(
+                    "flex items-start justify-between gap-4 px-4 py-3.5 text-sm",
+                    index !== 0 && "bk-divider-top",
+                  )}
+                >
                   <span className="bk-muted">{label}</span>
                   <span className="bk-text text-right font-semibold">{value}</span>
                 </div>
               ))}
             </div>
-            <div className="flex flex-wrap gap-3 mb-6">
-              <a href={buildGoogleCalUrl({ title: calTitle, details: `Agendamento em ${props.name}.`, location, startsAt: success.startsAt, endsAt: slot.endsAt })} target="_blank" rel="noreferrer">
-                <button type="button" className="bk-cal-btn flex items-center gap-2 rounded-full px-4 py-2.5 text-sm font-medium"><Calendar size={14} /> Google Agenda</button>
+
+            <div className="mt-6 grid gap-3 sm:grid-cols-2">
+              <a
+                href={buildGoogleCalUrl({
+                  title,
+                  details: `Agendamento confirmado em ${props.name}.`,
+                  location,
+                  startsAt: success.startsAt,
+                  endsAt: slot.endsAt,
+                })}
+                target="_blank"
+                rel="noreferrer"
+                className="bk-cal-btn inline-flex h-12 items-center justify-center gap-2 rounded-full px-5 text-sm font-semibold"
+              >
+                <CalendarDays size={15} />
+                Google Agenda
               </a>
-              <a href={buildIcs({ title: calTitle, description: `Agendamento em ${props.name}.`, location, startsAt: success.startsAt, endsAt: slot.endsAt })} download="agendamento.ics">
-                <button type="button" className="bk-cal-btn flex items-center gap-2 rounded-full px-4 py-2.5 text-sm font-medium"><Download size={14} /> Apple Calendar</button>
+              <a
+                href={buildIcs({
+                  title,
+                  description: `Agendamento confirmado em ${props.name}.`,
+                  location,
+                  startsAt: success.startsAt,
+                  endsAt: slot.endsAt,
+                })}
+                download="agendamento-zorby.ics"
+                className="bk-cal-btn inline-flex h-12 items-center justify-center gap-2 rounded-full px-5 text-sm font-semibold"
+              >
+                <Download size={15} />
+                Apple Calendar
               </a>
             </div>
-            <div className="flex gap-4 text-xs pt-5 bk-divider-top">
-              <a href={`/cancelar/${success.cancelToken}`} className="bk-muted hover:underline underline-offset-2">Cancelar agendamento</a>
-              <span className="bk-faint">·</span>
-              <a href={`/reagendar/${success.rescheduleToken}`} className="bk-muted hover:underline underline-offset-2">Reagendar</a>
+
+            <div className="mt-6 flex flex-wrap gap-4 text-xs text-[color:var(--bk-muted)]">
+              <a href={`/cancelar/${success.cancelToken}`} className="hover:underline">
+                Cancelar agendamento
+              </a>
+              <a href={`/reagendar/${success.rescheduleToken}`} className="hover:underline">
+                Reagendar
+              </a>
             </div>
           </div>
         </div>
@@ -302,281 +506,688 @@ export function BookingExperience(props: BookingExperienceProps) {
     );
   }
 
-  // ── MAIN BOOKING PAGE ─────────────────────────────────────────────────────
   return (
-    <div data-booking className="min-h-screen" style={{ "--bk-accent": accent, "--bk-accent-dim": accentDim } as React.CSSProperties}>
-
-      {/* HERO */}
-      <div className="bk-hero relative w-full overflow-hidden" style={{ height: 220 }}>
+    <div
+      data-booking
+      className="min-h-screen"
+      style={{ "--bk-accent": accent, "--bk-accent-dim": accentDim } as React.CSSProperties}
+    >
+      <div className="relative h-[240px] overflow-hidden sm:h-[280px]">
         {props.coverImageUrl ? (
-          <img src={props.coverImageUrl} alt="" className="absolute inset-0 w-full h-full object-cover" />
+          <img
+            src={props.coverImageUrl}
+            alt={props.name}
+            className="absolute inset-0 h-full w-full object-cover"
+          />
         ) : (
-          <div className="absolute inset-0" style={{ background: `linear-gradient(135deg, ${accent}55 0%, ${accent}22 100%)` }} />
+          <div
+            className="absolute inset-0"
+            style={{
+              background: `linear-gradient(140deg, ${accent} 0%, ${props.brandSecondaryColor ?? "#0f172a"} 100%)`,
+            }}
+          />
         )}
         <div className="bk-hero-overlay absolute inset-0" />
       </div>
 
-      <div className="relative mx-auto max-w-5xl px-4 pb-24 md:px-6">
+      <div className="relative mx-auto max-w-6xl px-4 pb-28 md:px-6">
+        <div className="-mt-16 lg:-mt-20">
+          <div className="bk-card rounded-[32px] p-5 md:p-7">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+              <div className="flex items-end gap-4">
+                {props.logoUrl ? (
+                  <img
+                    src={props.logoUrl}
+                    alt={props.name}
+                    className="h-18 w-18 rounded-[26px] border-4 border-white object-cover shadow-lg"
+                  />
+                ) : (
+                  <div
+                    className="flex h-18 w-18 items-center justify-center rounded-[26px] border-4 border-white text-3xl font-black text-white shadow-lg"
+                    style={{ background: accent }}
+                  >
+                    {props.name[0]}
+                  </div>
+                )}
 
-        {/* BUSINESS HEADER */}
-        <div className="-mt-10 mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-          <div className="flex items-end gap-4">
-            <div className="bk-logo-frame">
-              {props.logoUrl ? (
-                <img src={props.logoUrl} alt={props.name} className="bk-logo-img rounded-2xl object-cover" style={{ width: 76, height: 76 }} />
-              ) : (
-                <div className="flex items-center justify-center rounded-2xl text-2xl font-black text-white" style={{ width: 76, height: 76, background: accent }}>{props.name[0]}</div>
-              )}
-            </div>
-            <div className="pb-1">
-              <h1 className="bk-text text-xl font-black tracking-tight">{props.name}</h1>
-              <div className="flex flex-wrap items-center gap-3 mt-1.5">
-                {location && <span className="bk-muted flex items-center gap-1.5 text-sm"><MapPin size={13} style={{ color: accent }} />{location}</span>}
-                {props.phone && <span className="bk-muted flex items-center gap-1.5 text-sm"><Phone size={13} style={{ color: accent }} />{props.phone}</span>}
-                {avgRating && <StarRating rating={avgRating} count={props.reviews.length} />}
+                <div className="pb-1">
+                  <h1 className="bk-text text-[1.9rem] font-black tracking-[-0.04em] md:text-[2.4rem]">
+                    {props.name}
+                  </h1>
+                  <div className="mt-2 flex flex-wrap items-center gap-2.5 text-sm">
+                    {averageRating && <StarRating rating={averageRating} count={props.reviews.length} />}
+                    {location ? (
+                      <span className="bk-muted inline-flex items-center gap-1.5">
+                        <MapPin size={14} style={{ color: accent }} />
+                        {location}
+                      </span>
+                    ) : null}
+                    {props.phone ? (
+                      <span className="bk-muted inline-flex items-center gap-1.5">
+                        <Phone size={14} style={{ color: accent }} />
+                        {props.phone}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2.5 rounded-[20px] bk-summary-box p-2.5 text-center">
+                <div className="rounded-2xl bg-white px-3 py-3">
+                  <p className="bk-faint text-[11px] uppercase tracking-[0.18em]">Serviços</p>
+                  <p className="bk-text mt-1 text-lg font-black">{props.services.length}</p>
+                </div>
+                <div className="rounded-2xl bg-white px-3 py-3">
+                  <p className="bk-faint text-[11px] uppercase tracking-[0.18em]">Equipe</p>
+                  <p className="bk-text mt-1 text-lg font-black">{props.professionals.length}</p>
+                </div>
+                <div className="rounded-2xl bg-white px-3 py-3">
+                  <p className="bk-faint text-[11px] uppercase tracking-[0.18em]">Cidade</p>
+                  <p className="bk-text mt-1 truncate text-sm font-bold">{props.city ?? "Online"}</p>
+                </div>
               </div>
             </div>
+
+            {props.description ? (
+              <p className="bk-muted mt-5 max-w-3xl text-sm leading-7">{props.description}</p>
+            ) : null}
           </div>
         </div>
 
-        {props.description && <p className="bk-muted text-sm leading-7 mb-8 max-w-2xl">{props.description}</p>}
-
-        {/* MOBILE TABS */}
-        <div className="bk-mobile-tabs flex rounded-xl overflow-hidden mb-6 lg:hidden">
-          <button type="button" onClick={() => setMobileStep("booking")} className={cn("bk-mobile-tab flex-1 py-3 text-sm font-bold transition-all", mobileStep === "booking" ? "bk-mobile-tab-active" : "")}>
-            1. Serviço &amp; Horário
-          </button>
-          <button type="button" onClick={() => step1Done && step2Done && setMobileStep("form")} className={cn("bk-mobile-tab flex-1 py-3 text-sm font-bold transition-all", mobileStep === "form" ? "bk-mobile-tab-active" : "", (!step1Done || !step2Done) && "opacity-40")}>
-            2. Seus dados
-          </button>
+        <div className="mt-5 flex gap-2 overflow-x-auto pb-1 bk-scroll-hide">
+          {[
+            { id: "services" as const, label: "Serviços" },
+            { id: "reviews" as const, label: "Avaliações" },
+            { id: "details" as const, label: "Detalhes" },
+          ].map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => setActiveSection(item.id)}
+              className={cn(
+                "rounded-full px-4 py-2.5 text-sm font-semibold transition-all",
+                activeSection === item.id ? "text-white shadow-md" : "bk-cal-btn",
+              )}
+              style={activeSection === item.id ? { background: accent } : undefined}
+            >
+              {item.label}
+            </button>
+          ))}
         </div>
 
-        <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
-
-          {/* LEFT */}
-          <div className={cn("space-y-5", mobileStep === "form" && "hidden lg:block")}>
-
-            {/* STEP 1 */}
-            <section className="bk-card rounded-2xl p-6">
-              <StepHeader n={1} label="Escolha o serviço" done={step1Done} active={true} />
-              <div className="grid gap-3 sm:grid-cols-2">
-                {props.services.map((svc) => {
-                  const selected = serviceId === svc.id;
-                  return (
-                    <button key={svc.id} type="button" onClick={() => { setServiceId(svc.id); setVariantId(""); setSlot(null); }} className={cn("bk-service-card rounded-xl p-4 text-left transition-all relative overflow-hidden", selected ? "bk-service-card-selected" : "")}>
-                      {selected && <div className="absolute top-0 left-0 bottom-0 w-[3px] rounded-l-xl" style={{ background: accent }} />}
-                      <div className="flex items-start justify-between gap-2 pl-2">
-                        <span className="bk-text text-sm font-bold leading-snug">{svc.name}</span>
-                        {selected && <div className="flex-shrink-0 flex items-center justify-center rounded-full w-5 h-5" style={{ background: accent }}><Check size={11} className="text-white" strokeWidth={3} /></div>}
-                      </div>
-                      {svc.description && <p className="bk-muted mt-1.5 text-xs leading-5 pl-2">{svc.description}</p>}
-                      <div className="mt-3 flex items-center justify-between pl-2">
-                        <span className="bk-muted flex items-center gap-1 text-xs"><Clock size={11} />{svc.durationMinutes} min</span>
-                        <span className="text-sm font-black" style={{ color: selected ? accent : "var(--bk-text)" }}>{formatCurrencyBRL(svc.priceCents)}</span>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-              {service?.variants.length ? (
-                <div className="mt-4">
-                  <label className="bk-field-label block mb-1.5">Variação</label>
-                  <select value={variantId} onChange={(e) => setVariantId(e.target.value)} className="bk-select w-full h-11 rounded-xl px-3 text-sm">
-                    <option value="">Padrão</option>
-                    {service.variants.map((v) => <option key={v.id} value={v.id}>{v.name} — {v.durationMinutes} min — {formatCurrencyBRL(v.priceCents)}</option>)}
-                  </select>
+        <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_390px]">
+          <div className="space-y-6">
+            <section className="bk-card rounded-[30px] p-5 md:p-6">
+              <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+                <div>
+                  <p className="bk-faint text-xs font-semibold uppercase tracking-[0.22em]">
+                    Agendamento online
+                  </p>
+                  <h2 className="bk-text mt-2 text-2xl font-black tracking-[-0.04em] md:text-3xl">
+                    Escolha o serviço e reserve um horário
+                  </h2>
+                  <p className="bk-muted mt-2 text-sm leading-6">
+                    O profissional define a disponibilidade e você agenda apenas entre os
+                    horários realmente livres.
+                  </p>
                 </div>
-              ) : null}
-            </section>
 
-            {/* STEP 2 */}
-            <section className="bk-card rounded-2xl p-6">
-              <StepHeader n={2} label="Profissional, data e horário" done={step2Done} active={step1Done} />
-
-              {availableProfessionals.length > 0 && (
-                <div className="mb-5">
-                  <p className="bk-field-label block mb-2">Profissional</p>
-                  <div className="flex flex-wrap gap-2">
-                    {availableProfessionals.map((p) => (
-                      <button key={p.id} type="button" onClick={() => { setProId(p.id); setSlot(null); }} className={cn("bk-pro-chip flex items-center gap-2.5 rounded-full px-3.5 py-2 transition-all", proId === p.id ? "bk-pro-chip-selected" : "")} style={proId === p.id ? { borderColor: accent, color: accent, background: `${accent}12` } : {}}>
-                        <Avatar name={p.displayName} photo={p.photoUrl} size={26} />
-                        <div className="text-left">
-                          <p className="text-xs font-bold leading-tight">{p.displayName}</p>
-                          {p.roleLabel && <p className="text-[10px] leading-tight opacity-60">{p.roleLabel}</p>}
-                        </div>
-                        {proId === p.id && <Check size={12} strokeWidth={3} style={{ color: accent }} />}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <div className="mb-5">
-                <p className="bk-field-label block mb-2">Data</p>
-                <div className="flex gap-2 overflow-x-auto pb-1 bk-scroll-hide">
-                  {dateOptions.map((opt) => (
-                    <button key={opt.value} type="button" onClick={() => { setDate(opt.value); setSlot(null); }} className={cn("bk-date-chip flex-shrink-0 flex flex-col items-center justify-center rounded-2xl transition-all", date === opt.value ? "bk-date-chip-selected" : "")} style={date === opt.value ? { background: accent, color: "#fff", borderColor: accent } : {}}>
-                      <span className="text-[10px] font-bold uppercase tracking-wider leading-tight opacity-75">{opt.isToday ? "Hoje" : opt.isTomorrow ? "Amanhã" : opt.dayName}</span>
-                      <span className="text-base font-black leading-snug">{opt.dayNum}</span>
-                      <span className="text-[10px] leading-tight opacity-70">{opt.monthName}</span>
-                    </button>
-                  ))}
+                <div className="relative w-full md:max-w-xs">
+                  <Search
+                    size={16}
+                    className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[color:var(--bk-faint)]"
+                  />
+                  <input
+                    value={serviceSearch}
+                    onChange={(event) => setServiceSearch(event.target.value)}
+                    placeholder="Buscar serviço"
+                    className="bk-input h-12 w-full rounded-full pl-11 pr-4 text-sm"
+                  />
                 </div>
               </div>
 
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <p className="bk-field-label">Horários disponíveis</p>
-                  {loadingSlots && <span className="bk-faint text-xs animate-pulse">Carregando...</span>}
-                </div>
-                {!loadingSlots && slots.length === 0 ? (
-                  <div className="bk-no-slots rounded-xl p-4 text-sm text-center">Nenhum horário disponível. Tente outra data.</div>
-                ) : (
-                  <div className="flex flex-wrap gap-2">
-                    {slots.map((s) => {
-                      const selected = slot?.startsAt === s.startsAt;
+              {activeSection === "services" ? (
+                <>
+                  <div className="mt-5 grid gap-3">
+                    {filteredServices.map((item) => {
+                      const selected = item.id === serviceId;
                       return (
-                        <button key={s.startsAt} type="button" onClick={() => setSlot(s)} className={cn("bk-slot-chip rounded-full px-4 py-2 text-sm font-bold transition-all", selected ? "bk-slot-selected" : "")} style={selected ? { background: accent, color: "#fff", borderColor: accent } : {}}>
-                          {s.label}
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => {
+                            setServiceId(item.id);
+                            setVariantId("");
+                            setSlot(null);
+                          }}
+                          className={cn(
+                            "bk-service-card relative overflow-hidden rounded-[26px] p-4 text-left transition-all md:p-5",
+                            selected && "bk-service-card-selected",
+                          )}
+                        >
+                          <div
+                            className="absolute inset-y-0 left-0 w-1.5 rounded-l-[26px]"
+                            style={{ background: item.colorHex || accent }}
+                          />
+
+                          <div className="flex flex-col gap-3 pl-3 md:flex-row md:items-center md:justify-between">
+                            <div className="max-w-2xl">
+                              <div className="flex items-center gap-3">
+                                <h3 className="bk-text text-lg font-black tracking-[-0.03em]">
+                                  {item.name}
+                                </h3>
+                                {selected ? (
+                                  <span
+                                    className="inline-flex size-6 items-center justify-center rounded-full text-white"
+                                    style={{ background: accent }}
+                                  >
+                                    <Check size={13} strokeWidth={3} />
+                                  </span>
+                                ) : null}
+                              </div>
+                              {item.description ? (
+                                <p className="bk-muted mt-1.5 text-sm leading-6">
+                                  {item.description}
+                                </p>
+                              ) : null}
+                              <div className="mt-3 flex flex-wrap items-center gap-4 text-sm">
+                                <span className="bk-muted inline-flex items-center gap-1.5">
+                                  <Clock3 size={14} />
+                                  {item.durationMinutes} min
+                                </span>
+                                <span className="text-base font-black" style={{ color: accent }}>
+                                  {formatCurrencyBRL(item.priceCents)}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="shrink-0">
+                              <span
+                                className={cn(
+                                  "inline-flex h-11 items-center justify-center rounded-full px-5 text-sm font-semibold",
+                                  selected ? "text-white" : "bk-cal-btn",
+                                )}
+                                style={selected ? { background: accent } : undefined}
+                              >
+                                {selected ? "Selecionado" : "Reservar"}
+                              </span>
+                            </div>
+                          </div>
                         </button>
                       );
                     })}
                   </div>
-                )}
-              </div>
 
-              {weeklyAgenda.length > 0 && (
-                <div className="mt-5">
-                  <button type="button" onClick={() => setShowSchedule((v) => !v)} className="flex items-center gap-2 text-xs font-bold" style={{ color: accent }}>
-                    <ShieldCheck size={13} />
-                    Ver funcionamento semanal
-                    {showSchedule ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
-                  </button>
-                  {showSchedule && (
-                    <div className="mt-3 grid grid-cols-2 gap-2">
-                      {weeklyAgenda.map((item) => (
-                        <div key={item.label} className="bk-schedule-row rounded-xl px-3.5 py-2.5">
-                          <p className="bk-text text-xs font-bold">{item.label}</p>
-                          <p className="bk-muted text-xs mt-0.5">{item.value}</p>
+                  {service?.variants.length ? (
+                    <div className="mt-5">
+                      <label className="bk-field-label mb-2 block">Variação</label>
+                      <select
+                        value={variantId}
+                        onChange={(event) => setVariantId(event.target.value)}
+                        className="bk-select h-12 w-full rounded-2xl px-4 text-sm"
+                      >
+                        <option value="">Padrão</option>
+                        {service.variants.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.name} — {item.durationMinutes} min —{" "}
+                            {formatCurrencyBRL(item.priceCents)}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : null}
+
+                  <div className="mt-6 space-y-6">
+                    <div>
+                      <div className="mb-3 flex items-center justify-between gap-3">
+                        <div>
+                          <p className="bk-field-label">Profissional</p>
+                          <p className="bk-muted mt-1 text-sm">
+                            Escolha quem vai atender você.
+                          </p>
                         </div>
-                      ))}
+                      </div>
+
+                      <div className="flex gap-2 overflow-x-auto pb-1 bk-scroll-hide">
+                        {availableProfessionals.map((item) => (
+                          <button
+                            key={item.id}
+                            type="button"
+                            onClick={() => {
+                              setProfessionalId(item.id);
+                              setSlot(null);
+                            }}
+                            className={cn(
+                              "bk-pro-chip flex min-w-[180px] items-center gap-3 rounded-full px-3.5 py-2.5 transition-all",
+                              professionalId === item.id && "bk-pro-chip-selected",
+                            )}
+                            style={
+                              professionalId === item.id
+                                ? {
+                                    borderColor: accent,
+                                    background: `${accent}10`,
+                                    color: accent,
+                                  }
+                                : undefined
+                            }
+                          >
+                            <Avatar name={item.displayName} photo={item.photoUrl} size={42} />
+                            <div className="min-w-0 text-left">
+                              <p className="truncate text-sm font-bold text-[color:var(--bk-text)]">
+                                {item.displayName}
+                              </p>
+                              <p className="truncate text-xs text-[color:var(--bk-muted)]">
+                                {item.roleLabel ?? "Profissional"}
+                              </p>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="mb-3 flex items-center justify-between">
+                        <div>
+                          <p className="bk-field-label">Data e horário</p>
+                          <p className="bk-muted mt-1 text-sm">
+                            Toque em um dia para ver os horários livres.
+                          </p>
+                        </div>
+                        {loadingSlots ? (
+                          <span className="bk-muted text-xs">Atualizando...</span>
+                        ) : null}
+                      </div>
+
+                      <div className="flex gap-2 overflow-x-auto pb-2 bk-scroll-hide">
+                        {dateOptions.map((item) => {
+                          const selected = item.value === date;
+                          const count = daySlotCounts[item.value] ?? 0;
+                          return (
+                            <button
+                              key={item.value}
+                              type="button"
+                              onClick={() => {
+                                setDate(item.value);
+                                setSlot(null);
+                              }}
+                              className={cn(
+                                "bk-date-chip flex shrink-0 flex-col items-center justify-center rounded-[24px] transition-all",
+                                selected && "bk-date-chip-selected",
+                              )}
+                              style={
+                                selected
+                                  ? { background: accent, color: "#fff", borderColor: accent }
+                                  : undefined
+                              }
+                            >
+                              <span className="text-[10px] font-bold uppercase tracking-[0.18em]">
+                                {item.isToday
+                                  ? "Hoje"
+                                  : item.isTomorrow
+                                    ? "Amanhã"
+                                    : item.weekdayShort}
+                              </span>
+                              <span className="mt-1 text-lg font-black">{item.dayNumber}</span>
+                              <span className="text-[10px] uppercase">{item.month}</span>
+                              <span
+                                className="mt-2 h-1.5 w-7 rounded-full"
+                                style={{
+                                  background: selected
+                                    ? "rgba(255,255,255,0.45)"
+                                    : dayAvailabilityTone(count),
+                                }}
+                              />
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      <div className="mt-3 flex flex-wrap gap-4 text-xs text-[color:var(--bk-muted)]">
+                        <span className="inline-flex items-center gap-1.5">
+                          <span className="h-2 w-2 rounded-full bg-[color:var(--color-success)]" />
+                          +10 horários
+                        </span>
+                        <span className="inline-flex items-center gap-1.5">
+                          <span className="h-2 w-2 rounded-full bg-[color:var(--color-warning)]" />
+                          6–10 horários
+                        </span>
+                        <span className="inline-flex items-center gap-1.5">
+                          <span className="h-2 w-2 rounded-full bg-[#f59e0b]" />
+                          1–5 horários
+                        </span>
+                      </div>
+
+                      <div className="mt-5">
+                        {!loadingSlots && slots.length === 0 ? (
+                          <div className="bk-no-slots rounded-[24px] p-5 text-center text-sm">
+                            Nenhum horário disponível nesta data. Escolha outro dia ou profissional.
+                          </div>
+                        ) : (
+                          <div className="flex flex-wrap gap-2.5">
+                            {slots.map((item) => {
+                              const selected = slot?.startsAt === item.startsAt;
+                              return (
+                                <button
+                                  key={item.startsAt}
+                                  type="button"
+                                  onClick={() => setSlot(item)}
+                                  className={cn(
+                                    "bk-slot-chip rounded-full px-4 py-3 text-sm font-bold transition-all",
+                                    selected && "bk-slot-selected",
+                                  )}
+                                  style={
+                                    selected
+                                      ? {
+                                          background: accent,
+                                          color: "#fff",
+                                          borderColor: accent,
+                                        }
+                                      : undefined
+                                  }
+                                >
+                                  {item.label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </>
+              ) : null}
+
+              {activeSection === "reviews" ? (
+                <div className="mt-5 space-y-5">
+                  {props.reviews.length ? (
+                    <>
+                      <div className="grid gap-4 md:grid-cols-[220px_1fr]">
+                        <div className="bk-review-card rounded-[28px] p-5 text-center">
+                          <div className="bk-text text-5xl font-black tracking-[-0.05em]">
+                            {averageRating?.toFixed(1)}
+                          </div>
+                          <div className="mt-2 flex justify-center gap-1">
+                            {Array.from({ length: 5 }).map((_, index) => (
+                              <Star
+                                key={index}
+                                size={16}
+                                className={
+                                  index < Math.round(averageRating ?? 0)
+                                    ? "fill-amber-400 text-amber-400"
+                                    : "text-stone-300"
+                                }
+                              />
+                            ))}
+                          </div>
+                          <p className="bk-muted mt-2 text-sm">
+                            {props.reviews.length} avaliações verificadas
+                          </p>
+                        </div>
+                        <div className="bk-review-card rounded-[28px] p-5">
+                          <div className="space-y-3">
+                            {reviewsDistribution.map((item) => (
+                              <div key={item.star} className="flex items-center gap-3">
+                                <span className="bk-muted w-4 text-xs">{item.star}</span>
+                                <div className="bk-bar-bg h-2 flex-1 overflow-hidden rounded-full">
+                                  <div
+                                    className="h-full rounded-full"
+                                    style={{ width: `${item.percent}%`, background: accent }}
+                                  />
+                                </div>
+                                <span className="bk-faint w-6 text-right text-xs">{item.count}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid gap-3">
+                        {props.reviews.slice(0, 4).map((review) => (
+                          <article key={review.id} className="bk-review-card rounded-[24px] p-4">
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="flex items-center gap-3">
+                                <Avatar name={review.customerNameSnapshot} size={38} />
+                                <div>
+                                  <p className="bk-text text-sm font-bold">
+                                    {review.customerNameSnapshot}
+                                  </p>
+                                  <div className="mt-1 flex gap-0.5">
+                                    {Array.from({ length: 5 }).map((_, index) => (
+                                      <Star
+                                        key={index}
+                                        size={11}
+                                        className={
+                                          index < review.rating
+                                            ? "fill-amber-400 text-amber-400"
+                                            : "text-stone-300"
+                                        }
+                                      />
+                                    ))}
+                                  </div>
+                                </div>
+                              </div>
+                              <span className="rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-semibold text-emerald-700">
+                                Cliente confirmado
+                              </span>
+                            </div>
+                            {review.body ? (
+                              <p className="bk-muted mt-3 text-sm leading-6">{review.body}</p>
+                            ) : null}
+                          </article>
+                        ))}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="bk-no-slots rounded-[24px] p-5 text-center text-sm">
+                      As primeiras avaliações vão aparecer aqui depois dos atendimentos.
                     </div>
                   )}
                 </div>
-              )}
-            </section>
+              ) : null}
 
-            {/* REVIEWS */}
-            {props.reviews.length > 0 && (
-              <section className="bk-card rounded-2xl p-6">
-                <div className="flex items-center justify-between mb-5">
-                  <h3 className="bk-text text-sm font-black">Avaliações</h3>
-                  {avgRating && <StarRating rating={avgRating} count={props.reviews.length} />}
-                </div>
-                <div className="flex items-center gap-6 mb-5 pb-5 bk-divider-bottom">
-                  <div className="text-center flex-shrink-0">
-                    <div className="bk-text text-4xl font-black">{avgRating?.toFixed(1)}</div>
-                    <div className="flex gap-0.5 mt-1 justify-center">
-                      {Array.from({ length: 5 }).map((_, i) => <Star key={i} size={12} className={i < Math.round(avgRating ?? 0) ? "fill-amber-400 text-amber-400" : "text-stone-200"} />)}
+              {activeSection === "details" ? (
+                <div className="mt-5 grid gap-4 md:grid-cols-[1fr_1fr]">
+                  <div className="bk-review-card rounded-[28px] p-5">
+                    <p className="bk-field-label mb-2">Sobre o espaço</p>
+                    <p className="bk-text text-lg font-bold">{props.name}</p>
+                    <p className="bk-muted mt-2 text-sm leading-6">
+                      {props.description ??
+                        "Atendimento com agenda organizada, confirmação automática e horários exibidos em tempo real."}
+                    </p>
+                    <div className="mt-4 space-y-2 text-sm">
+                      {location ? (
+                        <p className="bk-muted inline-flex items-center gap-2">
+                          <MapPin size={14} style={{ color: accent }} />
+                          {location}
+                        </p>
+                      ) : null}
+                      {props.phone ? (
+                        <p className="bk-muted inline-flex items-center gap-2">
+                          <Phone size={14} style={{ color: accent }} />
+                          {props.phone}
+                        </p>
+                      ) : null}
                     </div>
-                    <p className="bk-muted text-xs mt-1">{props.reviews.length} avaliações</p>
                   </div>
-                  <div className="flex-1 space-y-1.5">
-                    {[5, 4, 3, 2, 1].map((star) => {
-                      const count = props.reviews.filter((r) => r.rating === star).length;
-                      const pct = props.reviews.length ? (count / props.reviews.length) * 100 : 0;
-                      return (
-                        <div key={star} className="flex items-center gap-2">
-                          <span className="bk-muted text-xs w-2">{star}</span>
-                          <div className="bk-bar-bg flex-1 rounded-full h-1.5 overflow-hidden"><div className="h-full rounded-full" style={{ width: `${pct}%`, background: pct > 0 ? "#fbbf24" : "transparent" }} /></div>
-                          <span className="bk-faint text-[10px] w-4 text-right">{count}</span>
+
+                  <div className="bk-review-card rounded-[28px] p-5">
+                    <p className="bk-field-label mb-2">Equipe e funcionamento</p>
+                    <div className="space-y-3">
+                      {props.professionals.slice(0, 3).map((item) => (
+                        <div key={item.id} className="flex items-center gap-3">
+                          <Avatar name={item.displayName} photo={item.photoUrl} size={42} />
+                          <div>
+                            <p className="bk-text text-sm font-bold">{item.displayName}</p>
+                            <p className="bk-muted text-xs">
+                              {item.roleLabel ?? "Profissional"}
+                            </p>
+                          </div>
                         </div>
-                      );
-                    })}
-                  </div>
-                </div>
-                <div className="space-y-3">
-                  {displayedReviews.map((r) => (
-                    <div key={r.id} className="bk-review-card rounded-xl p-4">
-                      <div className="flex items-center justify-between gap-3 mb-2">
-                        <div className="flex items-center gap-2.5">
-                          <div className="bk-avatar flex items-center justify-center rounded-full text-xs font-bold" style={{ width: 30, height: 30 }}>{r.customerNameSnapshot[0].toUpperCase()}</div>
-                          <p className="bk-text text-xs font-bold">{r.customerNameSnapshot}</p>
+                      ))}
+                    </div>
+
+                    {weeklyAgenda.length ? (
+                      <div className="mt-4 rounded-[22px] bk-summary-box p-4">
+                        <p className="bk-field-label mb-3">Horário de funcionamento</p>
+                        <div className="space-y-2">
+                          {weeklyAgenda.map((item) => (
+                            <div key={item.label} className="flex items-start justify-between gap-3 text-sm">
+                              <span className="bk-text font-semibold">{item.label}</span>
+                              <span className="bk-muted text-right">{item.value}</span>
+                            </div>
+                          ))}
                         </div>
-                        <div className="flex gap-0.5">{Array.from({ length: 5 }).map((_, i) => <Star key={i} size={10} className={i < r.rating ? "fill-amber-400 text-amber-400" : "text-stone-300"} />)}</div>
                       </div>
-                      {r.body && <p className="bk-muted text-xs leading-5">{r.body}</p>}
-                    </div>
-                  ))}
+                    ) : null}
+                  </div>
                 </div>
-                {props.reviews.length > 3 && (
-                  <button type="button" onClick={() => setShowAllReviews((v) => !v)} className="mt-4 flex items-center gap-1.5 text-xs font-bold w-full justify-center py-2.5 rounded-xl bk-show-more" style={{ color: accent }}>
-                    {showAllReviews ? <><ChevronUp size={13} /> Mostrar menos</> : <><ChevronDown size={13} /> Ver todas ({props.reviews.length})</>}
-                  </button>
-                )}
-              </section>
-            )}
+              ) : null}
+            </section>
           </div>
 
-          {/* RIGHT */}
-          <aside className={cn("space-y-4", mobileStep === "booking" && "hidden lg:block")}>
-            <div className="bk-card rounded-2xl p-6 lg:sticky lg:top-6">
-              <StepHeader n={3} label="Confirme seus dados" done={false} active={step3Active} />
-
-              <div className="bk-summary-box rounded-xl mb-5 overflow-hidden">
+          <aside className="space-y-4">
+            <div className="bk-card rounded-[30px] p-5 md:p-6 lg:sticky lg:top-6">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="bk-field-label">Seu agendamento</p>
+                  <h3 className="bk-text mt-2 text-2xl font-black tracking-[-0.04em]">
+                    Confirme seus dados
+                  </h3>
+                </div>
                 {summary ? (
-                  <div>
-                    <div className="px-4 py-3.5 flex items-start justify-between gap-3">
-                      <div>
-                        <p className="bk-text text-sm font-bold">{summary.serviceName}</p>
-                        <p className="bk-muted text-xs mt-0.5 flex items-center gap-1.5"><Avatar name={summary.professionalName} size={16} />{summary.professionalName}</p>
+                  <StarRating rating={averageRating ?? 5} count={props.reviews.length || 1} />
+                ) : null}
+              </div>
+
+              <div className="bk-summary-box mt-5 overflow-hidden rounded-[24px]">
+                {summary ? (
+                  <>
+                    <div className="px-4 py-4">
+                      <p className="bk-text text-base font-black">{summary.serviceName}</p>
+                      <div className="mt-2 flex items-center justify-between gap-3 text-sm">
+                        <span className="bk-muted inline-flex items-center gap-2">
+                          <Avatar
+                            name={summary.professionalName}
+                            photo={professional?.photoUrl}
+                            size={18}
+                          />
+                          {summary.professionalName}
+                        </span>
+                        <span className="font-black" style={{ color: accent }}>
+                          {formatCurrencyBRL(summary.priceCents)}
+                        </span>
                       </div>
-                      <div className="text-right flex-shrink-0">
-                        <p className="text-sm font-black" style={{ color: accent }}>{formatCurrencyBRL(summary.priceCents)}</p>
-                        <p className="bk-muted text-xs mt-0.5">{summary.durationMinutes} min</p>
+                      <div className="mt-1 text-xs text-[color:var(--bk-muted)]">
+                        {summary.durationMinutes} min
                       </div>
                     </div>
-                    {slot ? (
-                      <div className="px-4 py-2.5 flex items-center gap-2 text-xs font-bold" style={{ background: `${accent}14`, color: accent }}>
-                        <Clock size={12} />{formatInTimeZone(slot.startsAt, browserTZ, "EEEE, dd/MM 'às' HH:mm")}
-                      </div>
-                    ) : (
-                      <div className="px-4 py-2.5 text-xs bk-faint">← Selecione um horário para prosseguir</div>
-                    )}
-                  </div>
+                    <div className="bk-divider-top px-4 py-3 text-xs">
+                      {slot ? (
+                        <span
+                          className="inline-flex items-center gap-2 font-semibold"
+                          style={{ color: accent }}
+                        >
+                          <Clock3 size={13} />
+                          {formatInTimeZone(slot.startsAt, browserTZ, "EEEE, dd/MM 'às' HH:mm")}
+                        </span>
+                      ) : (
+                        <span className="bk-muted">Selecione um horário para continuar.</span>
+                      )}
+                    </div>
+                  </>
                 ) : (
-                  <div className="px-4 py-4 text-sm text-center bk-muted">Selecione um serviço e horário.</div>
+                  <div className="px-4 py-5 text-sm text-[color:var(--bk-muted)]">
+                    Escolha primeiro o serviço e o profissional.
+                  </div>
                 )}
               </div>
 
-              <form onSubmit={handleSubmit} className="space-y-3">
-                {[
-                  { id: "bk-name", label: "Nome completo", value: name, onChange: (v: string) => setName(v), placeholder: "Seu nome", required: true, type: "text" },
-                  { id: "bk-email", label: "E-mail", value: email, onChange: (v: string) => setEmail(v), placeholder: "voce@email.com", required: false, type: "email" },
-                  { id: "bk-phone", label: "Telefone", value: phone, onChange: (v: string) => setPhone(maskPhone(v)), placeholder: "(11) 99999-0000", required: true, type: "tel" },
-                ].map((field) => (
-                  <div key={field.id}>
-                    <label htmlFor={field.id} className="bk-field-label block mb-1.5">{field.label}{field.required && <span style={{ color: accent }}> *</span>}</label>
-                    <input id={field.id} type={field.type} value={field.value} onChange={(e) => field.onChange(e.target.value)} placeholder={field.placeholder} required={field.required} className="bk-input w-full h-11 rounded-xl px-3.5 text-sm" />
-                  </div>
-                ))}
+              <form onSubmit={handleSubmit} className="mt-5 space-y-3.5">
+                <div>
+                  <label htmlFor="booking-name" className="bk-field-label mb-1.5 block">
+                    Nome completo
+                  </label>
+                  <input
+                    id="booking-name"
+                    value={name}
+                    onChange={(event) => setName(event.target.value)}
+                    placeholder="Seu nome"
+                    className="bk-input h-12 w-full rounded-2xl px-4 text-sm"
+                    required
+                  />
+                </div>
 
-                <label className="bk-consent flex cursor-pointer items-start gap-3 rounded-xl p-3.5 text-xs leading-5">
-                  <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} className="mt-0.5 flex-shrink-0" style={{ accentColor: accent }} />
-                  <span className="bk-muted">Autorizo o uso dos meus dados para este agendamento e confirmações.</span>
+                <div>
+                  <label htmlFor="booking-email" className="bk-field-label mb-1.5 block">
+                    E-mail
+                  </label>
+                  <input
+                    id="booking-email"
+                    type="email"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    placeholder="voce@email.com"
+                    className="bk-input h-12 w-full rounded-2xl px-4 text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="booking-phone" className="bk-field-label mb-1.5 block">
+                    Telefone
+                  </label>
+                  <input
+                    id="booking-phone"
+                    value={phone}
+                    onChange={(event) => setPhone(maskPhone(event.target.value))}
+                    placeholder="(11) 99999-0000"
+                    className="bk-input h-12 w-full rounded-2xl px-4 text-sm"
+                    required
+                  />
+                </div>
+
+                <label className="bk-consent flex items-start gap-3 rounded-[20px] p-3.5 text-xs leading-5">
+                  <input
+                    type="checkbox"
+                    checked={consent}
+                    onChange={(event) => setConsent(event.target.checked)}
+                    className="mt-0.5"
+                    style={{ accentColor: accent }}
+                  />
+                  <span className="bk-muted">
+                    Autorizo o uso dos meus dados para realizar este agendamento e receber
+                    confirmações.
+                  </span>
                 </label>
 
-                {props.cancellationPolicyText && (
-                  <div className="bk-policy rounded-xl p-3.5 text-xs leading-5">
-                    <p className="bk-text font-bold mb-1 flex items-center gap-1.5"><ShieldCheck size={12} style={{ color: accent }} /> Política de cancelamento</p>
+                {props.cancellationPolicyText ? (
+                  <div className="bk-policy rounded-[20px] p-3.5 text-xs leading-5">
+                    <p className="bk-text mb-1.5 inline-flex items-center gap-1.5 font-bold">
+                      <ShieldCheck size={13} style={{ color: accent }} />
+                      Política de cancelamento
+                    </p>
                     <p className="bk-muted">{props.cancellationPolicyText}</p>
                   </div>
-                )}
+                ) : null}
 
-                {error && <div className="bk-error flex items-start gap-2 rounded-xl p-3.5 text-xs"><X size={13} className="flex-shrink-0 mt-0.5" />{error}</div>}
+                {error ? (
+                  <div className="bk-error rounded-[20px] p-3.5 text-xs leading-5">{error}</div>
+                ) : null}
 
-                <button type="submit" disabled={submitting || !slot || !consent || !name || !phone} className="bk-submit flex h-12 w-full items-center justify-center gap-2 rounded-full text-sm font-black text-white transition-all disabled:opacity-40" style={{ background: accent }}>
-                  {submitting ? "Confirmando..." : <><Scissors size={15} /> Confirmar agendamento <ChevronRight size={15} /></>}
+                <button
+                  type="submit"
+                  disabled={!slot || !name || !phone || !consent || submitting}
+                  className="bk-submit flex h-13 w-full items-center justify-center gap-2 rounded-full text-sm font-black text-white disabled:opacity-40"
+                  style={{ background: accent, height: 52 }}
+                >
+                  {submitting ? (
+                    <>
+                      <span className="bk-spinner" />
+                      Confirmando...
+                    </>
+                  ) : (
+                    <>
+                      Confirmar agendamento
+                      <ChevronRight size={16} />
+                    </>
+                  )}
                 </button>
               </form>
             </div>
@@ -584,14 +1195,39 @@ export function BookingExperience(props: BookingExperienceProps) {
         </div>
       </div>
 
-      {/* MOBILE CTA */}
-      {mobileStep === "booking" && step1Done && step2Done && (
-        <div className="fixed bottom-0 left-0 right-0 p-4 lg:hidden z-50 bk-mobile-cta-bar">
-          <button type="button" onClick={() => setMobileStep("form")} className="flex h-13 w-full items-center justify-center gap-2 rounded-full text-sm font-black text-white" style={{ background: accent, height: 52 }}>
-            Continuar para dados pessoais <ChevronRight size={16} />
-          </button>
+      {summary && slot ? (
+        <div className="bk-mobile-cta-bar fixed inset-x-0 bottom-0 z-50 p-4 lg:hidden">
+          <div className="bk-card rounded-[26px] p-3.5 shadow-2xl">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div>
+                <p className="bk-text text-sm font-bold">{summary.serviceName}</p>
+                <p className="bk-muted text-xs">
+                  {summary.durationMinutes} min • {formatCurrencyBRL(summary.priceCents)}
+                </p>
+              </div>
+              <span
+                className="rounded-full px-3 py-1 text-xs font-semibold"
+                style={{ background: `${accent}14`, color: accent }}
+              >
+                {slot.label}
+              </span>
+            </div>
+            <button
+              type="button"
+              className="flex h-13 w-full items-center justify-center gap-2 rounded-full text-sm font-black text-white"
+              style={{ background: accent, height: 52 }}
+              onClick={() => {
+                document
+                  .querySelector("aside form")
+                  ?.scrollIntoView({ behavior: "smooth", block: "start" });
+              }}
+            >
+              Continuar
+              <ChevronRight size={16} />
+            </button>
+          </div>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

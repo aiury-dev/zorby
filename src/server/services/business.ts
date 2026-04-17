@@ -202,3 +202,64 @@ export async function getPublicBusinessBySlug(slug: string) {
     },
   });
 }
+
+export async function getDiscoverableBusinesses() {
+  return prisma.business.findMany({
+    where: {
+      deletedAt: null,
+      indexable: true,
+      publicBookingEnabled: true,
+      publicBookingPaused: false,
+      status: "ACTIVE",
+    },
+    orderBy: [{ createdAt: "desc" }],
+    take: 24,
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      category: true,
+      description: true,
+      city: true,
+      neighborhood: true,
+      logoUrl: true,
+      coverImageUrl: true,
+      brandPrimaryColor: true,
+      phone: true,
+      professionals: {
+        where: {
+          status: "ACTIVE",
+          deletedAt: null,
+          acceptsOnlineBookings: true,
+        },
+        select: {
+          id: true,
+        },
+      },
+      services: {
+        where: {
+          isActive: true,
+          deletedAt: null,
+        },
+        orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+        take: 4,
+        select: {
+          id: true,
+          name: true,
+          priceCents: true,
+          durationMinutes: true,
+        },
+      },
+      reviews: {
+        where: {
+          isPublic: true,
+          status: "PUBLISHED",
+        },
+        select: {
+          id: true,
+          rating: true,
+        },
+      },
+    },
+  });
+}
