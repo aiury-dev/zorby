@@ -13,8 +13,14 @@ import { publishBookingLinkAction } from "@/server/actions/dashboard";
 import { getCurrentMembership } from "@/server/services/me";
 import { getOnboardingStepPath } from "@/server/services/onboarding";
 
-export default async function OnboardingLinkPage() {
+export default async function OnboardingLinkPage({
+  searchParams,
+}: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const membership = await getCurrentMembership();
+  const params = (await searchParams) ?? {};
+  const error = typeof params.error === "string" ? params.error : null;
 
   if (!membership) {
     redirect("/login");
@@ -79,6 +85,12 @@ export default async function OnboardingLinkPage() {
     >
       <div className="grid gap-8 xl:grid-cols-[minmax(0,1.2fr)_360px]">
         <div className="space-y-6">
+          {error ? (
+            <div className="rounded-[24px] border border-rose-200 bg-rose-50 px-5 py-4 text-sm font-medium text-rose-700">
+              {error}
+            </div>
+          ) : null}
+
           <section className="overflow-hidden rounded-[34px] border border-slate-200 bg-[linear-gradient(145deg,#0f172a_0%,#163d78_48%,#1d72d8_100%)] p-6 text-white shadow-[0_20px_50px_rgba(15,23,42,0.22)] md:p-8">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/10 px-4 py-2 text-sm text-white/80">

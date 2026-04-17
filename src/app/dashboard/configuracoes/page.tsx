@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { Globe, ImageIcon, Palette, ShieldCheck } from "lucide-react";
+import { Globe, ImageIcon, MapPin, Palette, ShieldCheck } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { prisma } from "@/lib/prisma";
 import { saveBusinessSettingsAction } from "@/server/actions/dashboard";
@@ -20,6 +20,15 @@ export default async function ConfiguracoesPage() {
       bookingTitle: true,
       description: true,
       phone: true,
+      addressLine1: true,
+      addressLine2: true,
+      neighborhood: true,
+      city: true,
+      state: true,
+      postalCode: true,
+      country: true,
+      latitude: true,
+      longitude: true,
       logoUrl: true,
       coverImageUrl: true,
       cancellationPolicyText: true,
@@ -48,17 +57,19 @@ export default async function ConfiguracoesPage() {
             Marca, políticas e experiência pública com acabamento profissional.
           </h1>
           <p className="text-sm leading-7 text-[color:var(--color-fg-muted)] md:text-base">
-            Ajuste o que o cliente vê, personalize cores, refine o posicionamento da página e
-            defina as regras de cancelamento do negócio.
+            Ajuste o que o cliente vê, personalize cores, refine o posicionamento da página,
+            complete o endereço do negócio e defina as regras de cancelamento.
           </p>
         </div>
 
         <div className="grid gap-3 sm:grid-cols-3 xl:min-w-[430px]">
           <article className="rounded-[26px] border border-[color:var(--color-border-default)] bg-white p-4 shadow-[0_14px_36px_rgba(15,23,42,0.04)]">
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[color:var(--color-fg-muted)]">
-              Link público
+              Descoberta local
             </p>
-            <p className="mt-3 text-lg font-semibold text-[color:var(--color-fg-default)]">Ativo</p>
+            <p className="mt-3 text-lg font-semibold text-[color:var(--color-fg-default)]">
+              {business.latitude && business.longitude ? "Pronta" : "Complete o endereço"}
+            </p>
           </article>
           <article className="rounded-[26px] border border-[color:var(--color-border-default)] bg-white p-4 shadow-[0_14px_36px_rgba(15,23,42,0.04)]">
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[color:var(--color-fg-muted)]">
@@ -122,6 +133,85 @@ export default async function ConfiguracoesPage() {
               </label>
               <Input id="phone" name="phone" defaultValue={business.phone ?? ""} placeholder="(11) 99999-0000" />
             </div>
+
+            <div className="space-y-2 md:col-span-2">
+              <label className="text-sm font-medium text-[color:var(--color-fg-default)]" htmlFor="addressLine1">
+                Endereço principal
+              </label>
+              <Input
+                id="addressLine1"
+                name="addressLine1"
+                defaultValue={business.addressLine1 ?? ""}
+                placeholder="Rua, avenida e número"
+                required
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-[color:var(--color-fg-default)]" htmlFor="addressLine2">
+                Complemento
+              </label>
+              <Input
+                id="addressLine2"
+                name="addressLine2"
+                defaultValue={business.addressLine2 ?? ""}
+                placeholder="Sala, andar, bloco"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-[color:var(--color-fg-default)]" htmlFor="neighborhood">
+                Bairro
+              </label>
+              <Input
+                id="neighborhood"
+                name="neighborhood"
+                defaultValue={business.neighborhood ?? ""}
+                placeholder="Ex.: Jardins"
+                required
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-[color:var(--color-fg-default)]" htmlFor="city">
+                Cidade
+              </label>
+              <Input
+                id="city"
+                name="city"
+                defaultValue={business.city ?? ""}
+                placeholder="Ex.: São Paulo"
+                required
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-[color:var(--color-fg-default)]" htmlFor="state">
+                Estado
+              </label>
+              <Input
+                id="state"
+                name="state"
+                defaultValue={business.state ?? ""}
+                placeholder="Ex.: SP"
+                required
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-[color:var(--color-fg-default)]" htmlFor="postalCode">
+                CEP
+              </label>
+              <Input
+                id="postalCode"
+                name="postalCode"
+                defaultValue={business.postalCode ?? ""}
+                placeholder="00000-000"
+                required
+              />
+            </div>
+
+            <input name="country" type="hidden" value={business.country ?? "BR"} />
 
             <div className="space-y-2">
               <label
@@ -267,6 +357,11 @@ export default async function ConfiguracoesPage() {
                   <p className="mt-2 text-sm leading-7 text-[color:var(--color-fg-muted)]">
                     {business.description || "Sua página pública vai refletir essas informações."}
                   </p>
+                  <p className="mt-3 text-sm font-medium text-[color:var(--color-fg-default)]">
+                    {[business.addressLine1, business.neighborhood, business.city, business.state]
+                      .filter(Boolean)
+                      .join(", ") || "Defina o endereço para aparecer na busca por proximidade."}
+                  </p>
                 </div>
               </div>
             </div>
@@ -284,6 +379,22 @@ export default async function ConfiguracoesPage() {
             </div>
           </article>
 
+          <article className="rounded-[28px] border border-[color:var(--color-border-default)] bg-white p-5">
+            <div className="flex items-start gap-3">
+              <div className="rounded-2xl bg-[color:var(--color-surface-muted)] p-2.5 text-[color:var(--color-brand-500)]">
+                <MapPin className="size-5" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-[color:var(--color-fg-default)]">Busca por proximidade</p>
+                <p className="mt-2 text-sm leading-7 text-[color:var(--color-fg-muted)]">
+                  {business.latitude && business.longitude
+                    ? "Seu negócio já pode aparecer primeiro para clientes próximos no fluxo /agendar."
+                    : "Complete o endereço para habilitar o posicionamento por distância no app de agendamento."}
+                </p>
+              </div>
+            </div>
+          </article>
+
           <article className="rounded-[28px] border border-[color:var(--color-border-default)] bg-[linear-gradient(180deg,#0f172a_0%,#172554_100%)] p-5 text-white">
             <div className="flex items-start gap-3">
               <div className="rounded-2xl border border-white/10 bg-white/10 p-2.5">
@@ -292,8 +403,8 @@ export default async function ConfiguracoesPage() {
               <div>
                 <p className="text-sm font-semibold">Regras claras geram menos atrito</p>
                 <p className="mt-2 text-sm leading-7 text-white/72">
-                  Antecedência mínima, política de cancelamento e um bom texto de apresentação
-                  melhoram a confiança antes do clique final.
+                  Antecedência mínima, política de cancelamento, apresentação do negócio e um
+                  endereço correto melhoram a confiança antes do clique final.
                 </p>
               </div>
             </div>

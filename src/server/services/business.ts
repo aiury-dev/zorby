@@ -2,6 +2,80 @@ import { MembershipRole, OnboardingStep, SubscriptionStatus } from "@/generated/
 import { prisma } from "@/lib/prisma";
 import { slugify } from "@/lib/utils";
 
+type GeocodableBusinessAddress = {
+  addressLine1?: string | null;
+  addressLine2?: string | null;
+  neighborhood?: string | null;
+  city?: string | null;
+  state?: string | null;
+  postalCode?: string | null;
+  country?: string | null;
+};
+
+export function hasCompleteBusinessAddress(address: GeocodableBusinessAddress) {
+  return Boolean(
+    address.addressLine1?.trim() &&
+      address.neighborhood?.trim() &&
+      address.city?.trim() &&
+      address.state?.trim() &&
+      address.postalCode?.trim(),
+  );
+}
+
+export function buildBusinessAddressLabel(address: GeocodableBusinessAddress) {
+  return [
+    address.addressLine1,
+    address.addressLine2,
+    address.neighborhood,
+    address.city,
+    address.state,
+    address.postalCode,
+    address.country || "BR",
+  ]
+    .filter(Boolean)
+    .join(", ");
+}
+
+export async function geocodeBusinessAddress(address: GeocodableBusinessAddress) {
+  if (!hasCompleteBusinessAddress(address)) {
+    return null;
+  }
+
+  const query = buildBusinessAddressLabel(address);
+  const url = new URL("https://nominatim.openstreetmap.org/search");
+  url.searchParams.set("q", query);
+  url.searchParams.set("format", "jsonv2");
+  url.searchParams.set("limit", "1");
+
+  try {
+    const response = await fetch(url, {
+      cache: "no-store",
+      headers: {
+        "User-Agent": "Zorby/1.0 (booking discovery geocoder)",
+        "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.7",
+      },
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const results = (await response.json()) as Array<{ lat: string; lon: string }>;
+    const match = results[0];
+
+    if (!match) {
+      return null;
+    }
+
+    return {
+      latitude: Number(match.lat),
+      longitude: Number(match.lon),
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function generateUniqueBusinessSlug(name: string) {
   const base = slugify(name) || "agenda";
   let candidate = base;
@@ -203,8 +277,8 @@ export async function getPublicBusinessBySlug(slug: string) {
   });
 }
 
-export async function getDiscoverableBusinesses() {
-  return prisma.business.findMany({
+export async function getDiscoverableBusinesses(limit = 36) {
+  const businesses = await prisma.business.findMany({
     where: {
       deletedAt: null,
       indexable: true,
@@ -213,15 +287,21 @@ export async function getDiscoverableBusinesses() {
       status: "ACTIVE",
     },
     orderBy: [{ createdAt: "desc" }],
-    take: 24,
+    take: limit,
     select: {
       id: true,
       name: true,
       slug: true,
       category: true,
       description: true,
+      addressLine1: true,
       city: true,
       neighborhood: true,
+      state: true,
+      postalCode: true,
+      country: true,
+      latitude: true,
+      longitude: true,
       logoUrl: true,
       coverImageUrl: true,
       brandPrimaryColor: true,
@@ -262,4 +342,16 @@ export async function getDiscoverableBusinesses() {
       },
     },
   });
+
+  return businesses.map((business) => ({
+    ...business,
+    latitude: business.latitude ? Number(business.latitude) : null,
+    longitude: business.longitude ? Number(business.longitude) : null,
+    reviewCount: business.reviews.length,
+    averageRating: business.reviews.length
+      ? business.reviews.reduce((sum, review) => sum + review.rating, 0) / business.reviews.length
+      : null,
+    professionalsCount: business.professionals.length,
+    addressLabel: buildBusinessAddressLabel(business),
+  }));
 }

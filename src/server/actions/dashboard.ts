@@ -12,7 +12,11 @@ import {
 } from "@/generated/prisma/enums";
 import { prisma } from "@/lib/prisma";
 import { enqueuePrivacyExport } from "@/server/queues/jobs";
-import { generateUniqueBusinessSlug } from "@/server/services/business";
+import {
+  geocodeBusinessAddress,
+  generateUniqueBusinessSlug,
+  hasCompleteBusinessAddress,
+} from "@/server/services/business";
 import { getCurrentMembership } from "@/server/services/me";
 import { assertProfessionalsLimit, assertServicesLimit, getCurrentSubscription } from "@/server/services/plans";
 import {
@@ -82,9 +86,41 @@ export async function saveBusinessStep(formData: FormData) {
     | "SPORTS"
     | "OTHER";
   const description = String(formData.get("description") ?? "").trim();
+  const addressLine1 = String(formData.get("addressLine1") ?? "").trim();
+  const addressLine2 = String(formData.get("addressLine2") ?? "").trim();
+  const neighborhood = String(formData.get("neighborhood") ?? "").trim();
   const city = String(formData.get("city") ?? "").trim();
+  const state = String(formData.get("state") ?? "").trim();
+  const postalCode = String(formData.get("postalCode") ?? "").trim();
+  const country = String(formData.get("country") ?? "BR").trim().toUpperCase() || "BR";
   const phone = String(formData.get("phone") ?? "").trim();
   const timezone = String(formData.get("timezone") ?? "America/Sao_Paulo");
+
+  if (
+    !hasCompleteBusinessAddress({
+      addressLine1,
+      neighborhood,
+      city,
+      state,
+      postalCode,
+      country,
+    })
+  ) {
+    await redirectBackWithError(
+      "Preencha o endereço completo do negócio para aparecer no agendamento por proximidade.",
+      "/onboarding/business",
+    );
+  }
+
+  const geocoded = await geocodeBusinessAddress({
+    addressLine1,
+    addressLine2,
+    neighborhood,
+    city,
+    state,
+    postalCode,
+    country,
+  });
 
   await prisma.business.update({
     where: { id: membership.businessId },
@@ -92,9 +128,17 @@ export async function saveBusinessStep(formData: FormData) {
       name,
       category,
       description: description || null,
+      addressLine1: addressLine1 || null,
+      addressLine2: addressLine2 || null,
+      neighborhood: neighborhood || null,
       city: city || null,
+      state: state || null,
+      postalCode: postalCode || null,
+      country,
       phone: phone || null,
       timezone,
+      latitude: geocoded?.latitude ?? null,
+      longitude: geocoded?.longitude ?? null,
       onboardingStep: OnboardingStep.SERVICES,
     },
   });
@@ -345,6 +389,22 @@ export async function deleteAvailabilityAction(formData: FormData) {
 
 export async function saveBusinessSettingsAction(formData: FormData) {
   const membership = await requireMembership();
+  const addressLine1 = String(formData.get("addressLine1") ?? "").trim();
+  const addressLine2 = String(formData.get("addressLine2") ?? "").trim();
+  const neighborhood = String(formData.get("neighborhood") ?? "").trim();
+  const city = String(formData.get("city") ?? "").trim();
+  const state = String(formData.get("state") ?? "").trim();
+  const postalCode = String(formData.get("postalCode") ?? "").trim();
+  const country = String(formData.get("country") ?? "BR").trim().toUpperCase() || "BR";
+  const geocoded = await geocodeBusinessAddress({
+    addressLine1,
+    addressLine2,
+    neighborhood,
+    city,
+    state,
+    postalCode,
+    country,
+  });
 
   await prisma.business.update({
     where: { id: membership.businessId },
@@ -352,6 +412,15 @@ export async function saveBusinessSettingsAction(formData: FormData) {
       bookingTitle: String(formData.get("bookingTitle") ?? "").trim() || null,
       description: String(formData.get("description") ?? "").trim() || null,
       phone: String(formData.get("phone") ?? "").trim() || null,
+      addressLine1: addressLine1 || null,
+      addressLine2: addressLine2 || null,
+      neighborhood: neighborhood || null,
+      city: city || null,
+      state: state || null,
+      postalCode: postalCode || null,
+      country,
+      latitude: geocoded?.latitude ?? null,
+      longitude: geocoded?.longitude ?? null,
       logoUrl: String(formData.get("logoUrl") ?? "").trim() || null,
       coverImageUrl: String(formData.get("coverImageUrl") ?? "").trim() || null,
       cancellationPolicyText: String(formData.get("cancellationPolicyText") ?? "").trim() || null,
@@ -367,12 +436,54 @@ export async function saveBusinessSettingsAction(formData: FormData) {
 
 export async function publishBookingLinkAction() {
   const membership = await requireMembership();
+  const business = await prisma.business.findUnique({
+    where: { id: membership.businessId },
+    select: {
+      id: true,
+      addressLine1: true,
+      addressLine2: true,
+      neighborhood: true,
+      city: true,
+      state: true,
+      postalCode: true,
+      country: true,
+      latitude: true,
+      longitude: true,
+    },
+  });
+
+  if (!business) {
+    await redirectBackWithError("Não encontramos o negócio para publicar a página.", "/onboarding/link");
+    return;
+  }
+
+  if (!hasCompleteBusinessAddress(business)) {
+    await redirectBackWithError(
+      "Preencha o endereço completo antes de publicar. Isso permite exibir seu negócio por proximidade.",
+      "/onboarding/link",
+    );
+  }
+
+  const geocoded =
+    business.latitude && business.longitude
+      ? null
+      : await geocodeBusinessAddress({
+          addressLine1: business.addressLine1,
+          addressLine2: business.addressLine2,
+          neighborhood: business.neighborhood,
+          city: business.city,
+          state: business.state,
+          postalCode: business.postalCode,
+          country: business.country,
+        });
 
   await prisma.business.update({
     where: { id: membership.businessId },
     data: {
       publicBookingEnabled: true,
       status: "ACTIVE",
+      latitude: geocoded?.latitude ?? undefined,
+      longitude: geocoded?.longitude ?? undefined,
       onboardingStep: OnboardingStep.COMPLETED,
       onboardingCompletedAt: new Date(),
     },

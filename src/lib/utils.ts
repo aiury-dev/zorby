@@ -34,3 +34,38 @@ export function formatPhone(phone: string) {
 
   return phone;
 }
+
+export function normalizeText(value?: string | null) {
+  return (value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+export function calculateDistanceInKm(
+  from: { latitude: number; longitude: number },
+  to: { latitude: number; longitude: number },
+) {
+  const earthRadiusKm = 6371;
+  const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
+  const deltaLatitude = toRadians(to.latitude - from.latitude);
+  const deltaLongitude = toRadians(to.longitude - from.longitude);
+  const startLatitude = toRadians(from.latitude);
+  const endLatitude = toRadians(to.latitude);
+
+  const a =
+    Math.sin(deltaLatitude / 2) ** 2 +
+    Math.sin(deltaLongitude / 2) ** 2 * Math.cos(startLatitude) * Math.cos(endLatitude);
+
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return earthRadiusKm * c;
+}
+
+export function formatDistanceKm(value: number) {
+  if (value < 1) {
+    return `${Math.max(1, Math.round(value * 1000))} m`;
+  }
+
+  return `${value.toFixed(value >= 10 ? 0 : 1).replace(".", ",")} km`;
+}
