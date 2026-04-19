@@ -1,8 +1,9 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import type { BusinessCategory } from "@/generated/prisma/enums";
+import type { BusinessCategory } from "@/lib/domain-enums";
 import {
   ArrowRight,
   CalendarDays,
@@ -118,9 +119,13 @@ function BusinessLogo({
 }) {
   if (logoUrl) {
     return (
-      <img
+      <Image
         src={logoUrl}
         alt={name}
+        loader={({ src }) => src}
+        unoptimized
+        width={48}
+        height={48}
         className="h-12 w-12 rounded-[18px] border border-white/70 object-cover shadow-[0_8px_20px_rgba(15,23,42,0.08)]"
       />
     );
@@ -406,7 +411,15 @@ export function BookingDiscoveryClient({
                     >
                       <div className="relative h-48 overflow-hidden bg-[#ece9e3]">
                         {business.coverImageUrl ? (
-                          <img src={business.coverImageUrl} alt={business.name} className="h-full w-full object-cover" />
+                          <Image
+                            src={business.coverImageUrl}
+                            alt={business.name}
+                            loader={({ src }) => src}
+                            unoptimized
+                            fill
+                            sizes="(max-width: 768px) 100vw, 50vw"
+                            className="object-cover"
+                          />
                         ) : (
                           <div
                             className="h-full w-full"

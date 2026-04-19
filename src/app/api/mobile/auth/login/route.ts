@@ -1,6 +1,7 @@
-import bcrypt from "bcryptjs";
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { getFirebaseAdminAuth } from "@/lib/firebase-admin";
+import { getPrimaryMembership } from "@/server/services/business";
+import { signInWithFirebasePassword } from "@/server/services/firebase-auth";
 import { createMobileToken } from "@/server/services/mobile-auth";
 
 export async function POST(request: Request) {
@@ -13,67 +14,57 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Informe e-mail e senha." }, { status: 400 });
     }
 
-    const user = await prisma.user.findUnique({
-      where: { email },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        passwordHash: true,
-        memberships: {
-          orderBy: { createdAt: "asc" },
-          take: 1,
-          select: {
-            role: true,
-            businessId: true,
-            business: {
-              select: {
-                id: true,
-                name: true,
-                slug: true,
-                onboardingStep: true,
-                status: true,
-              },
-            },
-          },
-        },
-      },
-    });
+    const firebaseSession = await signInWithFirebasePassword(email, password).catch(() => null);
 
-    if (!user?.passwordHash) {
-      return NextResponse.json({ error: "Credenciais inválidas." }, { status: 401 });
+    if (!firebaseSession?.localId) {
+      return NextResponse.json({ error: "Credenciais invalidas." }, { status: 401 });
     }
 
-    const valid = await bcrypt.compare(password, user.passwordHash);
-    if (!valid) {
-      return NextResponse.json({ error: "Credenciais inválidas." }, { status: 401 });
+    const [firebaseUser, membership] = await Promise.all([
+      getFirebaseAdminAuth().getUser(firebaseSession.localId),
+      getPrimaryMembership(firebaseSession.localId),
+    ]);
+
+    if (!firebaseUser) {
+      return NextResponse.json(
+        { error: "Conta sem espelho local sincronizado." },
+        { status: 401 },
+      );
     }
 
-    const membership = user.memberships[0];
     if (!membership) {
-      return NextResponse.json({ error: "Nenhum negócio vinculado a esta conta." }, { status: 403 });
+      return NextResponse.json(
+        { error: "Nenhum negocio vinculado a esta conta." },
+        { status: 403 },
+      );
     }
 
     const token = createMobileToken({
-      userId: user.id,
+      userId: firebaseUser.uid,
       businessId: membership.businessId,
       role: membership.role,
-      name: user.name,
-      email: user.email,
+      name: firebaseUser.displayName,
+      email: firebaseUser.email ?? email,
     });
 
     return NextResponse.json({
       token,
       user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
+        id: firebaseUser.uid,
+        name: firebaseUser.displayName,
+        email: firebaseUser.email ?? email,
         role: membership.role,
       },
-      business: membership.business,
+      business: {
+        id: membership.business.id,
+        name: membership.business.name,
+        slug: membership.business.slug,
+        onboardingStep: membership.business.onboardingStep,
+        status: membership.business.status,
+      },
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Não foi possível entrar.";
+    const message = error instanceof Error ? error.message : "Nao foi possivel entrar.";
     return NextResponse.json({ error: message }, { status: 400 });
   }
 }

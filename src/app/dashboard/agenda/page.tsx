@@ -12,10 +12,10 @@ import {
   UserRound,
   XCircle,
 } from "lucide-react";
-import { AppointmentStatus } from "@/generated/prisma/enums";
-import { prisma } from "@/lib/prisma";
+import { AppointmentStatus } from "@/lib/domain-enums";
 import { formatPhone } from "@/lib/utils";
 import { updateAppointmentStatusAction } from "@/server/actions/dashboard";
+import { getAppointmentsForBusinessDateFromFirestore } from "@/server/services/firestore-read";
 import { getCurrentMembership } from "@/server/services/me";
 
 type AgendaPageProps = {
@@ -83,24 +83,10 @@ export default async function AgendaPage({ searchParams }: AgendaPageProps) {
     params.date && /^\d{4}-\d{2}-\d{2}$/.test(params.date) ? params.date : today;
   const { startUtc, endUtc } = buildDayBounds(selectedDate, membership.business.timezone);
 
-  const appointments = await prisma.appointment.findMany({
-    where: {
-      businessId: membership.businessId,
-      startsAtUtc: {
-        gte: startUtc,
-        lte: endUtc,
-      },
-    },
-    orderBy: { startsAtUtc: "asc" },
-    take: 100,
-    include: {
-      professional: {
-        select: {
-          displayName: true,
-          roleLabel: true,
-        },
-      },
-    },
+  const appointments = await getAppointmentsForBusinessDateFromFirestore({
+    businessId: membership.businessId,
+    startUtc,
+    endUtc,
   });
 
   const selectedDateObject = parseISO(selectedDate);
@@ -252,7 +238,7 @@ export default async function AgendaPage({ searchParams }: AgendaPageProps) {
 
             <div className="grid gap-4">
               {group.items.map((appointment) => {
-                const status = statusMeta[appointment.status];
+                const status = statusMeta[appointment.status as AppointmentStatus];
                 const StatusIcon = status.icon;
 
                 return (

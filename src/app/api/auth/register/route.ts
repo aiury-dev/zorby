@@ -1,10 +1,12 @@
-import bcrypt from "bcryptjs";
+import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 import { Resend } from "resend";
 import { ZodError } from "zod";
 import { renderWelcomeEmail } from "@/lib/email-templates";
-import { prisma } from "@/lib/prisma";
+import { getFirebaseAdminAuth } from "@/lib/firebase-admin";
 import { createBusinessForUser } from "@/server/services/business";
+import { createFirebasePasswordUser, deleteFirebaseUser } from "@/server/services/firebase-auth";
+import { syncUserDocument } from "@/server/services/firebase-sync";
 import { registerSchema } from "@/server/validators/auth";
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
@@ -14,30 +16,40 @@ export async function POST(request: Request) {
     const body = registerSchema.parse(await request.json());
     const email = body.email.toLowerCase();
 
-    const existingUser = await prisma.user.findUnique({
-      where: { email },
-      select: { id: true },
-    });
+    const existingUser = await getFirebaseAdminAuth()
+      .getUserByEmail(email)
+      .then((user) => user.uid)
+      .catch(() => null);
 
     if (existingUser) {
       return NextResponse.json({ error: "Ja existe uma conta com este email." }, { status: 409 });
     }
 
-    const passwordHash = await bcrypt.hash(body.password, 10);
+    const userId = randomUUID();
 
-    const user = await prisma.user.create({
-      data: {
-        email,
-        name: body.name,
-        passwordHash,
-      },
+    await createFirebasePasswordUser({
+      uid: userId,
+      email,
+      password: body.password,
+      displayName: body.name,
     });
 
+    try {
+      await syncUserDocument({
+        id: userId,
+        email,
+        name: body.name,
+      }).catch(() => undefined);
+    } catch (error) {
+      await deleteFirebaseUser(userId).catch(() => undefined);
+      throw error;
+    }
+
     const business = await createBusinessForUser({
-      userId: user.id,
+      userId,
       businessName: body.businessName,
       userName: body.name,
-      userEmail: user.email,
+      userEmail: email,
     });
 
     if (resend) {
@@ -50,7 +62,7 @@ export async function POST(request: Request) {
       try {
         await resend.emails.send({
           from: process.env.RESEND_AUDIENCE_EMAIL ?? "noreply@zorby.app",
-          to: user.email,
+          to: email,
           subject: welcomeEmail.subject,
           html: welcomeEmail.html,
         });

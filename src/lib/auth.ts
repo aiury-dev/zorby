@@ -1,26 +1,71 @@
-import { PrismaAdapter } from "@next-auth/prisma-adapter";
-import bcrypt from "bcryptjs";
+import type { MembershipRole } from "@/lib/domain-enums";
 import type { NextAuthOptions } from "next-auth";
 import { getServerSession } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import GoogleProvider from "next-auth/providers/google";
-import { prisma } from "@/lib/prisma";
+import { createBusinessForUser, getPrimaryMembership } from "@/server/services/business";
+import { getUserByIdFromFirestore } from "@/server/services/firestore-read";
+import { ensureFirebaseGoogleUser, signInWithFirebasePassword } from "@/server/services/firebase-auth";
+import { syncUserDocument } from "@/server/services/firebase-sync";
 
 async function loadUserMembership(userId: string) {
-  const membership = await prisma.membership.findFirst({
-    where: { userId },
-    orderBy: { createdAt: "asc" },
-    select: {
-      role: true,
-      businessId: true,
-    },
-  });
+  const membership = await getPrimaryMembership(userId);
+  if (!membership) {
+    return null;
+  }
 
-  return membership;
+  return {
+    role: membership.role as MembershipRole,
+    businessId: membership.businessId,
+  };
+}
+
+async function ensureGoogleUserMirror(input: {
+  email: string;
+  name?: string | null;
+  image?: string | null;
+}) {
+  const firebaseUser = await ensureFirebaseGoogleUser(input);
+  const existingUser = await getUserByIdFromFirestore(firebaseUser.uid);
+
+  if (!existingUser) {
+    await syncUserDocument({
+      id: firebaseUser.uid,
+      email: input.email,
+      name: input.name ?? null,
+      image: input.image ?? null,
+    }).catch(() => undefined);
+
+    await createBusinessForUser({
+      userId: firebaseUser.uid,
+      businessName: input.name?.trim() || "Meu negocio",
+      userName: input.name?.trim() || "Proprietario",
+      userEmail: input.email,
+      userImage: input.image ?? null,
+    });
+  } else {
+    await syncUserDocument({
+      id: firebaseUser.uid,
+      email: input.email,
+      name: input.name ?? null,
+      image: input.image ?? null,
+      phone: existingUser.phone,
+    }).catch(() => undefined);
+  }
+
+  const membership = await getPrimaryMembership(firebaseUser.uid);
+
+  return {
+    id: firebaseUser.uid,
+    email: input.email,
+    name: input.name ?? undefined,
+    image: input.image ?? undefined,
+    businessId: membership?.businessId,
+    role: membership?.role,
+  };
 }
 
 export const authOptions: NextAuthOptions = {
-  adapter: PrismaAdapter(prisma),
   session: {
     strategy: "jwt",
   },
@@ -39,16 +84,18 @@ export const authOptions: NextAuthOptions = {
           return null;
         }
 
-        const user = await prisma.user.findUnique({
-          where: { email: credentials.email.toLowerCase() },
-        });
+        const firebaseSession = await signInWithFirebasePassword(
+          credentials.email.toLowerCase(),
+          credentials.password,
+        ).catch(() => null);
 
-        if (!user?.passwordHash) {
+        if (!firebaseSession?.localId) {
           return null;
         }
 
-        const isValid = await bcrypt.compare(credentials.password, user.passwordHash);
-        if (!isValid) {
+        const user = await getUserByIdFromFirestore(firebaseSession.localId);
+
+        if (!user) {
           return null;
         }
 
@@ -74,13 +121,38 @@ export const authOptions: NextAuthOptions = {
       : []),
   ],
   callbacks: {
-    async jwt({ token, user }) {
+    async signIn({ user, account }) {
+      if (account?.provider !== "google" || !user.email) {
+        return true;
+      }
+
+      await ensureGoogleUserMirror({
+        email: user.email,
+        name: user.name,
+        image: user.image,
+      });
+
+      return true;
+    },
+    async jwt({ token, user, account }) {
       if (user?.id) {
         const membership = await loadUserMembership(user.id);
 
         token.sub = user.id;
         token.businessId = membership?.businessId;
         token.role = membership?.role;
+      }
+
+      if (account?.provider === "google" && token.email) {
+        const googleUser = await ensureGoogleUserMirror({
+          email: token.email,
+          name: typeof token.name === "string" ? token.name : null,
+          image: typeof token.picture === "string" ? token.picture : null,
+        });
+
+        token.sub = googleUser.id;
+        token.businessId = googleUser.businessId;
+        token.role = googleUser.role as MembershipRole | undefined;
       }
 
       return token;

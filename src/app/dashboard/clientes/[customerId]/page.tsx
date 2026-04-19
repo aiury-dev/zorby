@@ -2,10 +2,14 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { formatInTimeZone } from "date-fns-tz";
 import { ArrowLeft, ShieldCheck, UserRound } from "lucide-react";
-import { prisma } from "@/lib/prisma";
 import { formatPhone } from "@/lib/utils";
 import { requestCustomerDeletionAction } from "@/server/actions/dashboard";
 import { getCurrentMembership } from "@/server/services/me";
+import {
+  getAppointmentsForBusinessFromFirestore,
+  getCustomerByIdFromFirestore,
+  getProfessionalsForBusinessFromFirestore,
+} from "@/server/services/firestore-read";
 
 type ClienteDetalhePageProps = {
   params: Promise<{
@@ -22,29 +26,25 @@ export default async function ClienteDetalhePage({ params }: ClienteDetalhePageP
 
   const { customerId } = await params;
 
-  const customer = await prisma.customer.findFirst({
-    where: {
-      id: customerId,
+  const [customer, appointments, professionals] = await Promise.all([
+    getCustomerByIdFromFirestore({
       businessId: membership.businessId,
-      deletedAt: null,
-    },
-    include: {
-      appointments: {
-        orderBy: { startsAtUtc: "desc" },
-        include: {
-          professional: {
-            select: {
-              displayName: true,
-            },
-          },
-        },
-      },
-    },
-  });
+      customerId,
+    }),
+    getAppointmentsForBusinessFromFirestore(membership.businessId),
+    getProfessionalsForBusinessFromFirestore(membership.businessId),
+  ]);
 
   if (!customer) {
     notFound();
   }
+
+  const professionalMap = new Map(
+    professionals.map((professional) => [professional.id, professional.displayName]),
+  );
+  const customerAppointments = appointments
+    .filter((appointment) => appointment.customerId === customer.id)
+    .sort((left, right) => right.startsAtUtc.getTime() - left.startsAtUtc.getTime());
 
   return (
     <div className="space-y-8">
@@ -81,7 +81,7 @@ export default async function ClienteDetalhePage({ params }: ClienteDetalhePageP
                 Histórico total
               </p>
               <p className="mt-2 text-3xl font-semibold text-[color:var(--color-fg-default)]">
-                {customer.appointments.length}
+                {customerAppointments.length}
               </p>
             </div>
             <form action={requestCustomerDeletionAction}>
@@ -105,9 +105,9 @@ export default async function ClienteDetalhePage({ params }: ClienteDetalhePageP
           </p>
         </div>
 
-        {customer.appointments.length ? (
+        {customerAppointments.length ? (
           <div className="grid gap-4">
-            {customer.appointments.map((appointment) => (
+            {customerAppointments.map((appointment) => (
               <article
                 key={appointment.id}
                 className="rounded-[28px] border border-[color:var(--color-border-default)] bg-white p-5 shadow-[0_16px_36px_rgba(15,23,42,0.04)]"
@@ -118,7 +118,7 @@ export default async function ClienteDetalhePage({ params }: ClienteDetalhePageP
                       {appointment.serviceNameSnapshot}
                     </p>
                     <p className="text-sm text-[color:var(--color-fg-muted)]">
-                      com {appointment.professional.displayName}
+                      com {professionalMap.get(appointment.professionalId) ?? "Profissional"}
                     </p>
                   </div>
 

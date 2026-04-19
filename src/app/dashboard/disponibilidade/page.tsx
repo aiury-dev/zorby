@@ -1,7 +1,10 @@
 import { redirect } from "next/navigation";
 import { Clock3, Layers3, TimerReset, UserRound } from "lucide-react";
-import { prisma } from "@/lib/prisma";
 import { createAvailabilityAction, deleteAvailabilityAction } from "@/server/actions/dashboard";
+import {
+  getAvailabilitiesForBusiness,
+  getProfessionalsForBusiness,
+} from "@/server/services/business";
 import { getCurrentMembership } from "@/server/services/me";
 
 const weekdays = [
@@ -31,30 +34,13 @@ export default async function DisponibilidadePage() {
   }
 
   const [professionals, availabilities] = await Promise.all([
-    prisma.professional.findMany({
-      where: {
-        businessId: membership.businessId,
-        deletedAt: null,
-      },
-      orderBy: [{ sortOrder: "asc" }, { displayName: "asc" }],
-      select: {
-        id: true,
-        displayName: true,
-      },
-    }),
-    prisma.availability.findMany({
-      where: {
-        businessId: membership.businessId,
-      },
-      orderBy: [{ dayOfWeek: "asc" }, { startMinutes: "asc" }],
-      include: {
-        professional: {
-          select: {
-            displayName: true,
-          },
-        },
-      },
-    }),
+    getProfessionalsForBusiness(membership.businessId).then((items) =>
+      items.map((professional) => ({
+        id: professional.id,
+        displayName: professional.displayName,
+      })),
+    ),
+    getAvailabilitiesForBusiness(membership.businessId),
   ]);
 
   const totalCapacity = availabilities.reduce((sum, item) => sum + item.capacity, 0);

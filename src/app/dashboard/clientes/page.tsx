@@ -2,10 +2,10 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { formatInTimeZone } from "date-fns-tz";
 import { Search, ShieldCheck, Users2 } from "lucide-react";
-import { prisma } from "@/lib/prisma";
 import { formatPhone } from "@/lib/utils";
 import { requestCustomerDeletionAction } from "@/server/actions/dashboard";
 import { getCurrentMembership } from "@/server/services/me";
+import { getCustomersForBusinessFromFirestore } from "@/server/services/firestore-read";
 
 type ClientesPageProps = {
   searchParams: Promise<{
@@ -23,48 +23,23 @@ export default async function ClientesPage({ searchParams }: ClientesPageProps) 
   const params = await searchParams;
   const query = params.q?.trim() ?? "";
 
-  const customers = await prisma.customer.findMany({
-    where: {
-      businessId: membership.businessId,
-      deletedAt: null,
-      ...(query
-        ? {
-            OR: [
-              {
-                fullName: {
-                  contains: query,
-                  mode: "insensitive",
-                },
-              },
-              {
-                phone: {
-                  contains: query.replace(/\D/g, ""),
-                },
-              },
-            ],
-          }
-        : {}),
-    },
-    orderBy: { createdAt: "desc" },
-    take: 50,
-    include: {
-      appointments: {
-        orderBy: { startsAtUtc: "desc" },
-        take: 3,
-        select: {
-          id: true,
-          startsAtUtc: true,
-          serviceNameSnapshot: true,
-          status: true,
-        },
-      },
-      _count: {
-        select: {
-          appointments: true,
-        },
-      },
-    },
-  });
+  const customers = (await getCustomersForBusinessFromFirestore(membership.businessId))
+    .filter((customer) => {
+      if (!query) {
+        return true;
+      }
+
+      const normalizedPhone = query.replace(/\D/g, "");
+      return (
+        customer.fullName.toLowerCase().includes(query.toLowerCase()) ||
+        customer.phone.includes(normalizedPhone)
+      );
+    })
+    .slice(0, 50)
+    .map((customer) => ({
+      ...customer,
+      appointments: customer.appointments.slice(0, 3),
+    }));
 
   const customersWithEmail = customers.filter((customer) => customer.email).length;
   const customersWithHistory = customers.filter((customer) => customer._count.appointments > 0).length;

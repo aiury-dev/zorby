@@ -1,12 +1,15 @@
+import { randomUUID } from "crypto";
 import { endOfDay } from "date-fns";
-import { BillingInterval, PlanCode, SubscriptionStatus } from "@/generated/prisma/enums";
+import { BillingInterval, PlanCode, SubscriptionStatus } from "@/lib/domain-enums";
 import {
   createMercadoPagoPreapproval,
   getMercadoPagoPreapproval,
   type MercadoPagoPreapproval,
   updateMercadoPagoPreapproval,
 } from "@/lib/mercadopago";
-import { prisma } from "@/lib/prisma";
+import { getBusinessSettingsFromFirestore } from "@/server/services/firestore-read";
+import { getPlanByCode, getPlanPriceCents } from "@/server/services/plan-catalog";
+import { syncBusinessSubscriptionSummary } from "@/server/services/firebase-sync";
 
 function mapMercadoPagoStatus(status: string): SubscriptionStatus {
   switch (status) {
@@ -76,31 +79,21 @@ export async function syncSubscriptionFromMercadoPagoPreapproval(
     throw new Error("Webhook do Mercado Pago sem external_reference do negocio.");
   }
 
-  const requestedPlanCode = resolvePlanCodeFromMercadoPago(preapproval);
+  const business = await getBusinessSettingsFromFirestore(targetBusinessId);
+  const existing = business?.subscriptions[0] ?? null;
+  const requestedPlanCode =
+    resolvePlanCodeFromMercadoPago(preapproval) ??
+    ((existing?.plan.code as PlanCode | undefined) ?? PlanCode.STARTER);
+  const plan = getPlanByCode(requestedPlanCode);
 
-  const [existing, requestedPlan] = await Promise.all([
-    prisma.subscription.findFirst({
-      where: {
-        OR: [
-          { providerSubscriptionId: preapproval.id },
-          { businessId: targetBusinessId },
-        ],
-      },
-      include: { plan: true },
-      orderBy: { createdAt: "desc" },
-    }),
-    requestedPlanCode
-      ? prisma.plan.findUnique({
-          where: { code: requestedPlanCode },
-        })
-      : Promise.resolve(null),
-  ]);
+  if (!plan) {
+    throw new Error("Plano local nao encontrado para sincronizar a assinatura.");
+  }
 
   const nextEndDate = preapproval.next_payment_date
     ? new Date(preapproval.next_payment_date)
     : endOfDay(new Date());
   const interval = inferBillingInterval(preapproval);
-
   const status = mapMercadoPagoStatus(preapproval.status);
   const blockedAt =
     status === SubscriptionStatus.ACTIVE || status === SubscriptionStatus.TRIALING
@@ -111,57 +104,37 @@ export async function syncSubscriptionFromMercadoPagoPreapproval(
     ? new Date(preapproval.last_modified)
     : now;
 
-  if (!existing) {
-    const fallbackPlan =
-      requestedPlan ??
-      (await prisma.plan.findUnique({
-        where: { code: PlanCode.STARTER },
-      }));
-
-    if (!fallbackPlan) {
-      throw new Error("Nenhum plano local encontrado para criar a subscription.");
-    }
-
-    return prisma.subscription.create({
-      data: {
-        businessId: targetBusinessId,
-        planId: fallbackPlan.id,
-        provider: "MERCADOPAGO",
-        status,
-        billingInterval: interval,
-        providerSubscriptionId: preapproval.id,
-        providerPriceId: preapproval.preapproval_plan_id ?? null,
-        providerCustomerId: preapproval.payer_id ? String(preapproval.payer_id) : null,
-        currentPeriodStart,
-        currentPeriodEnd: nextEndDate,
-        lastWebhookReceivedAt: now,
-        newBookingsBlockedAt: blockedAt,
-      },
-      include: { plan: true },
-    });
-  }
-
-  return prisma.subscription.update({
-    where: { id: existing.id },
-    data: {
-      planId: requestedPlan?.id ?? existing.planId,
-      provider: "MERCADOPAGO",
-      providerSubscriptionId: preapproval.id,
-      providerPriceId: preapproval.preapproval_plan_id ?? existing.providerPriceId,
-      providerCustomerId: preapproval.payer_id ? String(preapproval.payer_id) : existing.providerCustomerId,
-      status,
-      billingInterval: interval,
-      currentPeriodStart,
-      currentPeriodEnd: nextEndDate,
-      lastWebhookReceivedAt: now,
-      gracePeriodEndsAt:
-        status === SubscriptionStatus.PAST_DUE ? endOfDay(now) : null,
-      delinquentSince:
-        status === SubscriptionStatus.PAST_DUE || status === SubscriptionStatus.UNPAID ? now : null,
-      newBookingsBlockedAt: blockedAt,
+  const subscription = {
+    id: existing?.id ?? randomUUID(),
+    status,
+    billingInterval: interval,
+    providerSubscriptionId: preapproval.id,
+    currentPeriodStart: currentPeriodStart.toISOString(),
+    currentPeriodEnd: nextEndDate.toISOString(),
+    trialEnd:
+      existing?.trialEnd instanceof Date
+        ? existing.trialEnd.toISOString()
+        : existing?.trialEnd ?? null,
+    cancelAtPeriodEnd: existing?.cancelAtPeriodEnd ?? false,
+    newBookingsBlockedAt: blockedAt?.toISOString() ?? null,
+    plan: {
+      id: plan.id,
+      code: plan.code,
+      name: plan.name,
+      maxProfessionals: plan.maxProfessionals,
+      maxServices: plan.maxServices,
+      maxMonthlyAppointments: plan.maxMonthlyAppointments,
+      fullDataExportEnabled: plan.fullDataExportEnabled,
+      whatsappEnabled: plan.whatsappEnabled,
     },
-    include: { plan: true },
-  });
+  };
+
+  await syncBusinessSubscriptionSummary({
+    businessId: targetBusinessId,
+    subscription,
+  }).catch(() => undefined);
+
+  return subscription;
 }
 
 export async function syncSubscriptionFromMercadoPagoId(preapprovalId: string) {
@@ -193,19 +166,14 @@ export async function createMercadoPagoSubscriptionCheckout(input: {
   reason: string;
   backUrl: string;
 }) {
-  const plan = await prisma.plan.findUnique({
-    where: { code: input.planCode },
-  });
+  const plan = getPlanByCode(input.planCode);
 
   if (!plan) {
     throw new Error("Plano local nao encontrado.");
   }
 
   const preapprovalPlanId = resolveMercadoPagoPlanId(input.planCode, input.interval);
-  const amountInCents =
-    input.interval === BillingInterval.YEARLY
-      ? plan.yearlyPriceCents ?? plan.monthlyPriceCents
-      : plan.monthlyPriceCents;
+  const amountInCents = getPlanPriceCents(plan, input.interval);
 
   if (!amountInCents) {
     throw new Error("Preco do plano nao configurado.");

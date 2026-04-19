@@ -1,8 +1,8 @@
 import { redirect } from "next/navigation";
 import { OnboardingShell } from "@/components/onboarding/onboarding-shell";
 import { continueToAvailabilityAction, createServiceAction } from "@/server/actions/dashboard";
-import { prisma } from "@/lib/prisma";
 import { formatCurrencyBRL } from "@/lib/utils";
+import { getServicesForBusiness } from "@/server/services/business";
 import { getCurrentMembership } from "@/server/services/me";
 import { getOnboardingStepPath } from "@/server/services/onboarding";
 import { getCurrentSubscription } from "@/server/services/plans";
@@ -22,10 +22,7 @@ export default async function OnboardingServicesPage({ searchParams }: Onboardin
     redirect(getOnboardingStepPath(membership.business.onboardingStep));
   }
 
-  const services = await prisma.service.findMany({
-    where: { businessId: membership.businessId, deletedAt: null },
-    orderBy: { createdAt: "desc" },
-  });
+  const services = await getServicesForBusiness(membership.businessId);
   const subscription = await getCurrentSubscription(membership.businessId);
   const maxServices = subscription?.plan.maxServices ?? null;
   const servicesLimitReached = typeof maxServices === "number" && services.length >= maxServices;

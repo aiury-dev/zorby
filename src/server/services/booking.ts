@@ -1,10 +1,29 @@
+import { randomUUID } from "crypto";
 import { addMinutes, isBefore, parseISO } from "date-fns";
 import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
-import { NotificationType } from "@/generated/prisma/enums";
+import { NotificationType } from "@/lib/domain-enums";
 import { getRedis } from "@/lib/redis";
 import { createOpaqueToken, hashOpaqueToken } from "@/lib/tokens";
-import { prisma } from "@/lib/prisma";
 import { getPublicBusinessBySlug } from "@/server/services/business";
+import {
+  getAppointmentAccessTokenByHashFromFirestore,
+  getAppointmentByIdFromFirestore,
+  getAppointmentsForBusinessDateFromFirestore,
+  getAvailabilityBlocksForBusinessFromFirestore,
+  getBusinessSettingsFromFirestore,
+  getCustomerByBusinessPhoneFromFirestore,
+  getProfessionalsForBusinessFromFirestore,
+  getServicesForBusinessFromFirestore,
+} from "@/server/services/firestore-read";
+import {
+  acquireAppointmentSlotLocks,
+  releaseAppointmentSlotLocks,
+  syncAppointmentAccessTokenDocument,
+  syncAppointmentDocument,
+  syncAppointmentStatusHistoryDocument,
+  syncCustomerDocument,
+  syncNotificationDocument,
+} from "@/server/services/firebase-sync";
 import { assertBusinessCanReceiveBookings, assertMonthlyBookingLimit } from "@/server/services/plans";
 import {
   enqueueAppointmentLifecycleNotification,
@@ -140,30 +159,33 @@ async function loadOccupiedIntervals(input: {
   const { startsAtUtc, endsAtUtc } = toDayBounds(input.date, input.timezone);
 
   const [appointments, blocks] = await Promise.all([
-    prisma.appointment.findMany({
-      where: {
-        businessId: input.businessId,
-        professionalId: input.professionalId,
-        status: { in: ["PENDING", "CONFIRMED"] },
-        startsAtUtc: { gte: startsAtUtc, lt: endsAtUtc },
-      },
-      select: {
-        startsAtUtc: true,
-        endsAtUtc: true,
-      },
-    }),
-    prisma.availabilityBlock.findMany({
-      where: {
-        businessId: input.businessId,
-        OR: [{ professionalId: input.professionalId }, { professionalId: null }],
-        startsAtUtc: { lt: endsAtUtc },
-        endsAtUtc: { gt: startsAtUtc },
-      },
-      select: {
-        startsAtUtc: true,
-        endsAtUtc: true,
-      },
-    }),
+    getAppointmentsForBusinessDateFromFirestore({
+      businessId: input.businessId,
+      startUtc: startsAtUtc,
+      endUtc: endsAtUtc,
+    }).then((items) =>
+      items
+        .filter(
+          (appointment) =>
+            appointment.professionalId === input.professionalId &&
+            (appointment.status === "PENDING" || appointment.status === "CONFIRMED"),
+        )
+        .map((appointment) => ({
+          startsAtUtc: appointment.startsAtUtc,
+          endsAtUtc: appointment.endsAtUtc,
+        })),
+    ),
+    getAvailabilityBlocksForBusinessFromFirestore({
+      businessId: input.businessId,
+      professionalId: input.professionalId,
+      startUtc: startsAtUtc,
+      endUtc: endsAtUtc,
+    }).then((items) =>
+      items.map((block) => ({
+        startsAtUtc: block.startsAtUtc,
+        endsAtUtc: block.endsAtUtc,
+      })),
+    ),
   ]);
 
   return { appointments, blocks };
@@ -198,20 +220,13 @@ export async function getAvailabilityForPublicBooking(input: {
   });
 
   const dayOfWeek = computeDayOfWeek(input.date, business.timezone);
-  const availabilities = await prisma.availability.findMany({
-    where: {
-      businessId: business.id,
-      professionalId: input.professionalId,
-      isActive: true,
-      dayOfWeek,
-    },
-    select: {
-      startMinutes: true,
-      endMinutes: true,
-      slotIntervalMinutes: true,
-    },
-    orderBy: { startMinutes: "asc" },
-  });
+  const availabilities = professional.availabilities
+    .filter((availability) => availability.dayOfWeek === dayOfWeek)
+    .map((availability) => ({
+      startMinutes: availability.startMinutes,
+      endMinutes: availability.endMinutes,
+      slotIntervalMinutes: availability.slotIntervalMinutes,
+    }));
 
   const { appointments, blocks } = await loadOccupiedIntervals({
     businessId: business.id,
@@ -256,10 +271,6 @@ async function invalidateAvailabilityCache(input: {
   await Promise.all(patterns.map((key) => redis.del(key)));
 }
 
-function advisoryLockKey(input: { businessId: string; professionalId: string; date: string }) {
-  return `${input.businessId}:${input.professionalId}:${input.date}`;
-}
-
 function buildPublicActionUrl(path: string) {
   const baseUrl = process.env.APP_URL ?? "http://localhost:3000";
   return new URL(path, baseUrl).toString();
@@ -273,52 +284,101 @@ export async function createAccessTokensForAppointment(input: {
   const cancelToken = createOpaqueToken();
   const rescheduleToken = createOpaqueToken();
 
-  await prisma.appointmentAccessToken.createMany({
-    data: [
-      {
-        businessId: input.businessId,
-        appointmentId: input.appointmentId,
-        purpose: "CANCEL",
-        tokenHash: hashOpaqueToken(cancelToken),
-        expiresAt: input.expiresAt,
-      },
-      {
-        businessId: input.businessId,
-        appointmentId: input.appointmentId,
-        purpose: "RESCHEDULE",
-        tokenHash: hashOpaqueToken(rescheduleToken),
-        expiresAt: input.expiresAt,
-      },
-    ],
-  });
+  await Promise.all([
+    syncAppointmentAccessTokenDocument({
+      id: randomUUID(),
+      businessId: input.businessId,
+      appointmentId: input.appointmentId,
+      purpose: "CANCEL",
+      tokenHash: hashOpaqueToken(cancelToken),
+      expiresAt: input.expiresAt.toISOString(),
+    }),
+    syncAppointmentAccessTokenDocument({
+      id: randomUUID(),
+      businessId: input.businessId,
+      appointmentId: input.appointmentId,
+      purpose: "RESCHEDULE",
+      tokenHash: hashOpaqueToken(rescheduleToken),
+      expiresAt: input.expiresAt.toISOString(),
+    }),
+  ]);
 
   return { cancelToken, rescheduleToken };
 }
 
-async function getActiveToken(rawToken: string, purpose: "CANCEL" | "RESCHEDULE") {
-  const token = await prisma.appointmentAccessToken.findFirst({
-    where: {
-      tokenHash: hashOpaqueToken(rawToken),
-      purpose,
-      usedAt: null,
-      expiresAt: { gt: new Date() },
-    },
-    include: {
-      appointment: {
-        include: {
-          business: true,
-          service: true,
-          professional: true,
-        },
-      },
-    },
+async function upsertBookingCustomer(input: {
+  businessId: string;
+  fullName: string;
+  email?: string | null;
+  phone: string;
+  timezone: string;
+}) {
+  const existing = await getCustomerByBusinessPhoneFromFirestore({
+    businessId: input.businessId,
+    phone: input.phone,
   });
 
-  if (!token) {
+  const customer = {
+    id: existing?.id ?? randomUUID(),
+    businessId: input.businessId,
+    fullName: input.fullName,
+    email: input.email ?? null,
+    phone: input.phone,
+    timezone: input.timezone,
+    lastBookedAt: new Date().toISOString(),
+  };
+
+  await syncCustomerDocument(customer);
+
+  return customer;
+}
+
+async function getActiveToken(rawToken: string, purpose: "CANCEL" | "RESCHEDULE") {
+  const token = await getAppointmentAccessTokenByHashFromFirestore({
+    tokenHash: hashOpaqueToken(rawToken),
+    purpose,
+  });
+
+  if (!token || token.usedAt || token.expiresAt <= new Date()) {
     throw new Error("Link invalido ou expirado.");
   }
 
-  return token;
+  const appointment = await getAppointmentByIdFromFirestore(token.appointmentId);
+  if (!appointment) {
+    throw new Error("Agendamento nao encontrado.");
+  }
+
+  const [business, professionals, services] = await Promise.all([
+    getBusinessSettingsFromFirestore(appointment.businessId),
+    getProfessionalsForBusinessFromFirestore(appointment.businessId),
+    getServicesForBusinessFromFirestore(appointment.businessId),
+  ]);
+
+  if (!business) {
+    throw new Error("Negocio nao encontrado.");
+  }
+
+  const professional = professionals.find((item) => item.id === appointment.professionalId);
+  const service = services.find((item) => item.id === appointment.serviceId);
+  const variant = service?.variants.find((item) => item.id === appointment.serviceVariantId);
+
+  return {
+    ...token,
+    appointment: {
+      ...appointment,
+      business,
+      professional: {
+        id: appointment.professionalId,
+        displayName: professional?.displayName ?? "Profissional",
+        roleLabel: professional?.roleLabel ?? null,
+      },
+      service: {
+        id: appointment.serviceId,
+        durationMinutes: variant?.durationMinutes ?? service?.durationMinutes ?? 30,
+        bufferAfterMinutes: service?.bufferAfterMinutes ?? 0,
+      },
+    },
+  };
 }
 
 export async function createPublicBooking(input: {
@@ -353,149 +413,141 @@ export async function createPublicBooking(input: {
   );
 
   const localDateKey = formatInTimeZone(startsAtUtc, business.timezone, "yyyy-MM-dd");
+  const appointmentId = randomUUID();
 
-  const appointment = await prisma.$transaction(
-    async (tx) => {
-      const lockKey = advisoryLockKey({
-        businessId: business.id,
-        professionalId: professional.id,
-        date: localDateKey,
-      });
-
-      await tx.$executeRawUnsafe("SELECT pg_advisory_xact_lock(hashtext($1))", lockKey);
-
-      const conflicting = await tx.appointment.findFirst({
-        where: {
-          professionalId: professional.id,
-          status: { in: ["PENDING", "CONFIRMED"] },
-          startsAtUtc: { lt: endsAtUtc },
-          endsAtUtc: { gt: startsAtUtc },
-        },
-        select: { id: true },
-      });
-
-      if (conflicting) {
-        throw new Error("Esse horario acabou de ser reservado. Escolha outro horario.");
-      }
-
-      const customer = await tx.customer.upsert({
-        where: {
-          businessId_phone: {
-            businessId: business.id,
-            phone: input.customerPhone,
-          },
-        },
-        update: {
-          fullName: input.customerName,
-          email: input.customerEmail || null,
-          privacyConsentAt: new Date(),
-          timezone: input.customerTimezone,
-          lastBookedAt: new Date(),
-        },
-        create: {
-          businessId: business.id,
-          fullName: input.customerName,
-          email: input.customerEmail || null,
-          phone: input.customerPhone,
-          privacyConsentAt: new Date(),
-          timezone: input.customerTimezone,
-          lastBookedAt: new Date(),
-        },
-      });
-
-      const created = await tx.appointment.create({
-        data: {
-          businessId: business.id,
-          professionalId: professional.id,
-          serviceId: serviceSelection.service.id,
-          serviceVariantId: serviceSelection.variant?.id,
-          customerId: customer.id,
-          locationId: business.locations[0]?.id,
-          status: "CONFIRMED",
-          source: "PUBLIC_PAGE",
-          startsAtUtc,
-          endsAtUtc,
-          timezoneSnapshot: business.timezone,
-          customerTimezone: input.customerTimezone,
-          customerNameSnapshot: input.customerName,
-          customerEmailSnapshot: input.customerEmail || null,
-          customerPhoneSnapshot: input.customerPhone,
-          serviceNameSnapshot: serviceSelection.service.name,
-          serviceVariantSnapshot: serviceSelection.variant?.name,
-          locationNameSnapshot: business.locations[0]?.name,
-          priceCents: serviceSelection.priceCents,
-          prepaymentMode: serviceSelection.prepaymentMode,
-          prepaymentAmountCents: serviceSelection.prepaymentAmountCents,
-        },
-      });
-
-      await tx.appointmentStatusHistory.create({
-        data: {
-          appointmentId: created.id,
-          toStatus: "CONFIRMED",
-          note: "Agendamento criado pela pagina publica.",
-        },
-      });
-
-      await tx.notification.create({
-        data: {
-          businessId: business.id,
-          appointmentId: created.id,
-          customerId: customer.id,
-          channel: "EMAIL",
-          type: NotificationType.APPOINTMENT_CONFIRMED,
-          status: "PENDING",
-          recipientName: customer.fullName,
-          recipientEmail: customer.email,
-          recipientPhone: customer.phone,
-        },
-      });
-
-      return created;
-    },
-    {
-      isolationLevel: "Serializable",
-    },
-  );
-
-  const expiresAt = addMinutes(appointment.startsAtUtc, -business.cancellationNoticeMinutes);
-  const tokens = await createAccessTokensForAppointment({
+  await acquireAppointmentSlotLocks({
+    appointmentId,
     businessId: business.id,
-    appointmentId: appointment.id,
-    expiresAt,
+    professionalId: professional.id,
+    startsAtUtc,
+    endsAtUtc,
   });
 
-  await prisma.notification.updateMany({
-    where: {
+  try {
+    const conflicting = (
+      await getAppointmentsForBusinessDateFromFirestore({
+        businessId: business.id,
+        startUtc: toDayBounds(localDateKey, business.timezone).startsAtUtc,
+        endUtc: toDayBounds(localDateKey, business.timezone).endsAtUtc,
+      })
+    ).find(
+      (candidate) =>
+        candidate.professionalId === professional.id &&
+        (candidate.status === "PENDING" || candidate.status === "CONFIRMED") &&
+        candidate.startsAtUtc < endsAtUtc &&
+        candidate.endsAtUtc > startsAtUtc,
+    );
+
+    if (conflicting) {
+      throw new Error("Esse horario acabou de ser reservado. Escolha outro horario.");
+    }
+
+    const customer = await upsertBookingCustomer({
+      businessId: business.id,
+      fullName: input.customerName,
+      email: input.customerEmail || null,
+      phone: input.customerPhone,
+      timezone: input.customerTimezone,
+    });
+
+    const appointment = {
+      id: appointmentId,
+      businessId: business.id,
+      professionalId: professional.id,
+      serviceId: serviceSelection.service.id,
+      serviceVariantId: serviceSelection.variant?.id ?? null,
+      customerId: customer.id,
+      status: "CONFIRMED" as const,
+      source: "PUBLIC_PAGE",
+      startsAtUtc,
+      endsAtUtc,
+      timezoneSnapshot: business.timezone,
+      customerTimezone: input.customerTimezone,
+      customerNameSnapshot: input.customerName,
+      customerEmailSnapshot: input.customerEmail || null,
+      customerPhoneSnapshot: input.customerPhone,
+      serviceNameSnapshot: serviceSelection.service.name,
+      serviceVariantSnapshot: serviceSelection.variant?.name ?? null,
+      priceCents: serviceSelection.priceCents,
+    };
+
+    await syncAppointmentDocument({
+      id: appointment.id,
+      businessId: appointment.businessId,
+      professionalId: appointment.professionalId,
+      serviceId: appointment.serviceId,
+      serviceVariantId: appointment.serviceVariantId,
+      customerId: appointment.customerId,
+      status: appointment.status,
+      source: appointment.source,
+      startsAtUtc: appointment.startsAtUtc.toISOString(),
+      endsAtUtc: appointment.endsAtUtc.toISOString(),
+      timezoneSnapshot: appointment.timezoneSnapshot,
+      customerTimezone: appointment.customerTimezone,
+      customerNameSnapshot: appointment.customerNameSnapshot,
+      customerEmailSnapshot: appointment.customerEmailSnapshot,
+      customerPhoneSnapshot: appointment.customerPhoneSnapshot,
+      serviceNameSnapshot: appointment.serviceNameSnapshot,
+      serviceVariantSnapshot: appointment.serviceVariantSnapshot,
+      priceCents: appointment.priceCents,
+    });
+
+    await syncAppointmentStatusHistoryDocument({
+      id: randomUUID(),
       appointmentId: appointment.id,
-      type: NotificationType.APPOINTMENT_CONFIRMED,
+      toStatus: "CONFIRMED",
+      note: "Agendamento criado pela pagina publica.",
+    });
+
+    const expiresAt = addMinutes(appointment.startsAtUtc, -business.cancellationNoticeMinutes);
+    const tokens = await createAccessTokensForAppointment({
+      businessId: business.id,
+      appointmentId: appointment.id,
+      expiresAt,
+    });
+
+    await syncNotificationDocument({
+      id: randomUUID(),
+      businessId: business.id,
+      appointmentId: appointment.id,
+      customerId: customer.id,
       channel: "EMAIL",
-    },
-    data: {
+      type: NotificationType.APPOINTMENT_CONFIRMED,
+      status: "PENDING",
+      recipientName: customer.fullName,
+      recipientEmail: customer.email,
+      recipientPhone: customer.phone,
       payload: {
         cancelUrl: buildPublicActionUrl(`/cancelar/${tokens.cancelToken}`),
         rescheduleUrl: buildPublicActionUrl(`/reagendar/${tokens.rescheduleToken}`),
       },
-    },
-  });
+    });
 
-  await enqueueAppointmentNotifications({
-    appointmentId: appointment.id,
-    startsAtUtc: appointment.startsAtUtc,
-  });
+    await enqueueAppointmentNotifications({
+      appointmentId: appointment.id,
+      startsAtUtc: appointment.startsAtUtc,
+    });
 
-  await invalidateAvailabilityCache({
-    slug: business.slug,
-    date: localDateKey,
-    serviceId: serviceSelection.service.id,
-    professionalId: professional.id,
-    timezone: business.timezone,
-  });
+    await invalidateAvailabilityCache({
+      slug: business.slug,
+      date: localDateKey,
+      serviceId: serviceSelection.service.id,
+      professionalId: professional.id,
+      timezone: business.timezone,
+    });
 
-  return {
-    appointment,
-    tokens,
-  };
+    return {
+      appointment,
+      tokens,
+    };
+  } catch (error) {
+    await releaseAppointmentSlotLocks({
+      professionalId: professional.id,
+      startsAtUtc,
+      endsAtUtc,
+    }).catch(() => undefined);
+    throw error;
+  }
 }
 
 export async function cancelBookingWithToken(rawToken: string, reason?: string) {
@@ -511,45 +563,59 @@ export async function cancelBookingWithToken(rawToken: string, reason?: string) 
     throw new Error("A politica de cancelamento deste profissional nao permite cancelar agora.");
   }
 
-  const updated = await prisma.$transaction(async (tx) => {
-    const nextAppointment = await tx.appointment.update({
-      where: { id: appointment.id },
-      data: {
-        status: "CANCELLED",
-        cancelledAt: new Date(),
-        cancellationReason: reason ?? null,
-      },
-    });
+  const cancelledAt = new Date();
 
-    await tx.appointmentStatusHistory.create({
-      data: {
-        appointmentId: appointment.id,
-        fromStatus: appointment.status,
-        toStatus: "CANCELLED",
-        note: reason ?? "Cancelado pelo cliente final via link.",
-      },
-    });
+  await syncAppointmentDocument({
+    id: appointment.id,
+    businessId: appointment.businessId,
+    professionalId: appointment.professionalId,
+    serviceId: appointment.serviceId,
+    serviceVariantId: appointment.serviceVariantId,
+    customerId: appointment.customerId,
+    status: "CANCELLED",
+    source: appointment.source,
+    startsAtUtc: appointment.startsAtUtc.toISOString(),
+    endsAtUtc: appointment.endsAtUtc.toISOString(),
+    timezoneSnapshot: appointment.timezoneSnapshot,
+    customerTimezone: appointment.customerTimezone,
+    customerNameSnapshot: appointment.customerNameSnapshot,
+    customerEmailSnapshot: appointment.customerEmailSnapshot,
+    customerPhoneSnapshot: appointment.customerPhoneSnapshot,
+    serviceNameSnapshot: appointment.serviceNameSnapshot,
+    serviceVariantSnapshot: appointment.serviceVariantSnapshot,
+    priceCents: appointment.priceCents,
+    cancelledAt: cancelledAt.toISOString(),
+  });
 
-    await tx.appointmentAccessToken.update({
-      where: { id: token.id },
-      data: { usedAt: new Date() },
-    });
+  await syncAppointmentStatusHistoryDocument({
+    id: randomUUID(),
+    appointmentId: appointment.id,
+    fromStatus: appointment.status,
+    toStatus: "CANCELLED",
+    note: reason ?? "Cancelado pelo cliente final via link.",
+  });
 
-    await tx.notification.create({
-      data: {
-        businessId: appointment.businessId,
-        appointmentId: appointment.id,
-        customerId: appointment.customerId,
-        channel: "EMAIL",
-        type: NotificationType.APPOINTMENT_CANCELLED,
-        status: "PENDING",
-        recipientName: appointment.customerNameSnapshot,
-        recipientEmail: appointment.customerEmailSnapshot,
-        recipientPhone: appointment.customerPhoneSnapshot,
-      },
-    });
+  await syncAppointmentAccessTokenDocument({
+    id: token.id,
+    businessId: token.businessId,
+    appointmentId: token.appointmentId,
+    purpose: token.purpose,
+    tokenHash: token.tokenHash,
+    expiresAt: token.expiresAt.toISOString(),
+    usedAt: cancelledAt.toISOString(),
+  });
 
-    return nextAppointment;
+  await syncNotificationDocument({
+    id: randomUUID(),
+    businessId: appointment.businessId,
+    appointmentId: appointment.id,
+    customerId: appointment.customerId,
+    channel: "EMAIL",
+    type: NotificationType.APPOINTMENT_CANCELLED,
+    status: "PENDING",
+    recipientName: appointment.customerNameSnapshot,
+    recipientEmail: appointment.customerEmailSnapshot,
+    recipientPhone: appointment.customerPhoneSnapshot,
   });
 
   await invalidateAvailabilityCache({
@@ -565,7 +631,17 @@ export async function cancelBookingWithToken(rawToken: string, reason?: string) 
     appointmentId: appointment.id,
   });
 
-  return updated;
+  await releaseAppointmentSlotLocks({
+    professionalId: appointment.professionalId,
+    startsAtUtc: appointment.startsAtUtc,
+    endsAtUtc: appointment.endsAtUtc,
+  }).catch(() => undefined);
+
+  return {
+    ...appointment,
+    status: "CANCELLED" as const,
+    cancelledAt,
+  };
 }
 
 export async function rescheduleBookingWithToken(rawToken: string, startsAt: string, customerTimezone: string) {
@@ -588,72 +664,92 @@ export async function rescheduleBookingWithToken(rawToken: string, startsAt: str
   );
 
   const dateKey = formatInTimeZone(startsAtUtc, appointment.business.timezone, "yyyy-MM-dd");
-
-  const updated = await prisma.$transaction(
-    async (tx) => {
-      const lockKey = advisoryLockKey({
-        businessId: appointment.businessId,
-        professionalId: appointment.professionalId,
-        date: dateKey,
-      });
-
-      await tx.$executeRawUnsafe("SELECT pg_advisory_xact_lock(hashtext($1))", lockKey);
-
-      const conflicting = await tx.appointment.findFirst({
-        where: {
-          professionalId: appointment.professionalId,
-          status: { in: ["PENDING", "CONFIRMED"] },
-          startsAtUtc: { lt: endsAtUtc },
-          endsAtUtc: { gt: startsAtUtc },
-          id: { not: appointment.id },
-        },
-        select: { id: true },
-      });
-
-      if (conflicting) {
-        throw new Error("Esse horario acabou de ser reservado. Escolha outro horario.");
-      }
-
-      const nextAppointment = await tx.appointment.update({
-        where: { id: appointment.id },
-        data: {
-          startsAtUtc,
-          endsAtUtc,
-          customerTimezone,
-          version: { increment: 1 },
-        },
-      });
-
-      await tx.appointmentStatusHistory.create({
-        data: {
-          appointmentId: appointment.id,
-          fromStatus: appointment.status,
-          toStatus: appointment.status,
-          note: "Agendamento reagendado pelo cliente final.",
-        },
-      });
-
-      await tx.appointmentAccessToken.update({
-        where: { id: token.id },
-        data: { usedAt: new Date() },
-      });
-
-      return nextAppointment;
-    },
-    {
-      isolationLevel: "Serializable",
-    },
-  );
-
-  const expiresAt = addMinutes(updated.startsAtUtc, -appointment.business.rescheduleNoticeMinutes);
-  const nextTokens = await createAccessTokensForAppointment({
-    businessId: appointment.businessId,
+  await acquireAppointmentSlotLocks({
     appointmentId: appointment.id,
-    expiresAt,
+    businessId: appointment.businessId,
+    professionalId: appointment.professionalId,
+    startsAtUtc,
+    endsAtUtc,
   });
 
-  await prisma.notification.create({
-    data: {
+  try {
+    const conflicting = (
+      await getAppointmentsForBusinessDateFromFirestore({
+        businessId: appointment.businessId,
+        startUtc: toDayBounds(dateKey, appointment.business.timezone).startsAtUtc,
+        endUtc: toDayBounds(dateKey, appointment.business.timezone).endsAtUtc,
+      })
+    ).find(
+      (candidate) =>
+        candidate.id !== appointment.id &&
+        candidate.professionalId === appointment.professionalId &&
+        (candidate.status === "PENDING" || candidate.status === "CONFIRMED") &&
+        candidate.startsAtUtc < endsAtUtc &&
+        candidate.endsAtUtc > startsAtUtc,
+    );
+
+    if (conflicting) {
+      throw new Error("Esse horario acabou de ser reservado. Escolha outro horario.");
+    }
+
+    await syncAppointmentDocument({
+      id: appointment.id,
+      businessId: appointment.businessId,
+      professionalId: appointment.professionalId,
+      serviceId: appointment.serviceId,
+      serviceVariantId: appointment.serviceVariantId,
+      customerId: appointment.customerId,
+      status: appointment.status,
+      source: appointment.source,
+      startsAtUtc: startsAtUtc.toISOString(),
+      endsAtUtc: endsAtUtc.toISOString(),
+      timezoneSnapshot: appointment.timezoneSnapshot,
+      customerTimezone,
+      customerNameSnapshot: appointment.customerNameSnapshot,
+      customerEmailSnapshot: appointment.customerEmailSnapshot,
+      customerPhoneSnapshot: appointment.customerPhoneSnapshot,
+      serviceNameSnapshot: appointment.serviceNameSnapshot,
+      serviceVariantSnapshot: appointment.serviceVariantSnapshot,
+      priceCents: appointment.priceCents,
+      cancelledAt: appointment.cancelledAt?.toISOString() ?? null,
+      completedAt: appointment.completedAt?.toISOString() ?? null,
+      noShowMarkedAt: appointment.noShowMarkedAt?.toISOString() ?? null,
+    });
+
+    await syncAppointmentStatusHistoryDocument({
+      id: randomUUID(),
+      appointmentId: appointment.id,
+      fromStatus: appointment.status,
+      toStatus: appointment.status,
+      note: "Agendamento reagendado pelo cliente final.",
+    });
+
+    await syncAppointmentAccessTokenDocument({
+      id: token.id,
+      businessId: token.businessId,
+      appointmentId: token.appointmentId,
+      purpose: token.purpose,
+      tokenHash: token.tokenHash,
+      expiresAt: token.expiresAt.toISOString(),
+      usedAt: new Date().toISOString(),
+    });
+
+    const updated = {
+      ...appointment,
+      startsAtUtc,
+      endsAtUtc,
+      customerTimezone,
+    };
+
+    const expiresAt = addMinutes(updated.startsAtUtc, -appointment.business.rescheduleNoticeMinutes);
+    const nextTokens = await createAccessTokensForAppointment({
+      businessId: appointment.businessId,
+      appointmentId: appointment.id,
+      expiresAt,
+    });
+
+    await syncNotificationDocument({
+      id: randomUUID(),
       businessId: appointment.businessId,
       appointmentId: appointment.id,
       customerId: appointment.customerId,
@@ -667,26 +763,39 @@ export async function rescheduleBookingWithToken(rawToken: string, startsAt: str
         cancelUrl: buildPublicActionUrl(`/cancelar/${nextTokens.cancelToken}`),
         rescheduleUrl: buildPublicActionUrl(`/reagendar/${nextTokens.rescheduleToken}`),
       },
-    },
-  });
+    });
 
-  await invalidateAvailabilityCache({
-    slug: appointment.business.slug,
-    date: dateKey,
-    serviceId: appointment.serviceId,
-    professionalId: appointment.professionalId,
-    timezone: appointment.business.timezone,
-  });
+    await invalidateAvailabilityCache({
+      slug: appointment.business.slug,
+      date: dateKey,
+      serviceId: appointment.serviceId,
+      professionalId: appointment.professionalId,
+      timezone: appointment.business.timezone,
+    });
 
-  await enqueueAppointmentLifecycleNotification({
-    jobName: "appointment-rescheduled",
-    appointmentId: appointment.id,
-  });
+    await enqueueAppointmentLifecycleNotification({
+      jobName: "appointment-rescheduled",
+      appointmentId: appointment.id,
+    });
 
-  return {
-    appointment: updated,
-    tokens: nextTokens,
-  };
+    await releaseAppointmentSlotLocks({
+      professionalId: appointment.professionalId,
+      startsAtUtc: appointment.startsAtUtc,
+      endsAtUtc: appointment.endsAtUtc,
+    }).catch(() => undefined);
+
+    return {
+      appointment: updated,
+      tokens: nextTokens,
+    };
+  } catch (error) {
+    await releaseAppointmentSlotLocks({
+      professionalId: appointment.professionalId,
+      startsAtUtc,
+      endsAtUtc,
+    }).catch(() => undefined);
+    throw error;
+  }
 }
 
 export async function loadActionTokenPreview(rawToken: string, purpose: "CANCEL" | "RESCHEDULE") {

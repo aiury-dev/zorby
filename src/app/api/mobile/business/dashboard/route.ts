@@ -1,5 +1,11 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import {
+  countAppointmentsFromFirestore,
+  getAppointmentRevenueMonthCentsFromFirestore,
+  getAppointmentsForBusinessDateFromFirestore,
+  getBusinessSettingsFromFirestore,
+  getUpcomingAppointmentsFromFirestore,
+} from "@/server/services/firestore-read";
 import { readBearerToken, verifyMobileToken } from "@/server/services/mobile-auth";
 
 export async function GET(request: Request) {
@@ -15,68 +21,52 @@ export async function GET(request: Request) {
     const endOfDay = new Date(now);
     endOfDay.setHours(23, 59, 59, 999);
 
-    const [business, appointmentsToday, confirmedToday, revenueMonth, nextAppointments] = await Promise.all([
-      prisma.business.findUnique({
-        where: { id: token.businessId },
-        select: {
-          id: true,
-          name: true,
-          slug: true,
-          onboardingStep: true,
-          publicBookingEnabled: true,
-          publicBookingPaused: true,
-          logoUrl: true,
-          coverImageUrl: true,
-          brandPrimaryColor: true,
-          city: true,
-          state: true,
-        },
-      }),
-      prisma.appointment.count({
-        where: {
+    const [business, appointmentsToday, confirmedToday, revenueMonthCents, nextAppointments] =
+      await Promise.all([
+        getBusinessSettingsFromFirestore(token.businessId),
+        getAppointmentsForBusinessDateFromFirestore({
           businessId: token.businessId,
-          startsAtUtc: { gte: startOfDay, lte: endOfDay },
-        },
-      }),
-      prisma.appointment.count({
-        where: {
+          startUtc: startOfDay,
+          endUtc: endOfDay,
+        }).then((items) => items.length),
+        countAppointmentsFromFirestore({
           businessId: token.businessId,
-          startsAtUtc: { gte: startOfDay, lte: endOfDay },
-          status: "CONFIRMED",
-        },
-      }),
-      prisma.appointment.aggregate({
-        where: {
+          predicate: (appointment) =>
+            appointment.startsAtUtc >= startOfDay &&
+            appointment.startsAtUtc <= endOfDay &&
+            appointment.status === "CONFIRMED",
+        }),
+        getAppointmentRevenueMonthCentsFromFirestore({
           businessId: token.businessId,
-          createdAt: { gte: new Date(now.getFullYear(), now.getMonth(), 1) },
-          status: { not: "CANCELLED" },
-        },
-        _sum: { priceCents: true },
-      }),
-      prisma.appointment.findMany({
-        where: {
+          monthStart: new Date(now.getFullYear(), now.getMonth(), 1),
+        }),
+        getUpcomingAppointmentsFromFirestore({
           businessId: token.businessId,
-          startsAtUtc: { gte: now },
-        },
-        orderBy: { startsAtUtc: "asc" },
-        take: 6,
-        select: {
-          id: true,
-          customerNameSnapshot: true,
-          serviceNameSnapshot: true,
-          startsAtUtc: true,
-          status: true,
-          professional: { select: { displayName: true } },
-        },
-      }),
-    ]);
+          startsAfter: now,
+          limit: 6,
+        }),
+      ]);
 
     return NextResponse.json({
-      business,
+      business: business
+        ? {
+            id: business.id,
+            name: business.name,
+            slug: business.slug,
+            onboardingStep: business.onboardingStep,
+            publicBookingEnabled: business.publicBookingEnabled,
+            publicBookingPaused: business.publicBookingPaused,
+            logoUrl: business.logoUrl,
+            coverImageUrl: business.coverImageUrl,
+            brandPrimaryColor: business.brandPrimaryColor,
+            city: business.city,
+            state: business.state,
+          }
+        : null,
       summary: {
         appointmentsToday,
         confirmedToday,
-        revenueMonthCents: revenueMonth._sum.priceCents ?? 0,
+        revenueMonthCents,
       },
       nextAppointments,
       user: {

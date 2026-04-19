@@ -1,11 +1,11 @@
-import { BillingInterval, PlanCode } from "@/generated/prisma/enums";
+import { BillingInterval, PlanCode } from "@/lib/domain-enums";
 import { redirect } from "next/navigation";
 import { CreditCard, ShieldCheck, Sparkles } from "lucide-react";
 import { cancelSubscriptionAction, startSubscriptionCheckoutAction } from "@/server/actions/dashboard";
 import { getCurrentMembership } from "@/server/services/me";
 import { getCurrentSubscription, getPlanState } from "@/server/services/plans";
+import { getPlansCatalog } from "@/server/services/plan-catalog";
 import { getMercadoPagoManagementLink } from "@/server/services/subscriptions";
-import { prisma } from "@/lib/prisma";
 import { formatCurrencyBRL } from "@/lib/utils";
 
 function formatSubscriptionStatus(status?: string | null) {
@@ -33,9 +33,7 @@ export default async function BillingPage() {
   }
 
   const [plans, subscription, planState] = await Promise.all([
-    prisma.plan.findMany({
-      orderBy: { monthlyPriceCents: "asc" },
-    }),
+    Promise.resolve(getPlansCatalog()),
     getCurrentSubscription(membership.businessId),
     getPlanState(membership.businessId),
   ]);

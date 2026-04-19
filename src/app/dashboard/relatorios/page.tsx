@@ -1,8 +1,11 @@
 import { redirect } from "next/navigation";
 import { BarChart3, Download, ShieldCheck } from "lucide-react";
-import { prisma } from "@/lib/prisma";
 import { formatCurrencyBRL } from "@/lib/utils";
 import { requestAggregatedExportAction, requestFullExportAction } from "@/server/actions/dashboard";
+import {
+  getAppointmentsForBusinessFromFirestore,
+  getDataExportsForBusinessFromFirestore,
+} from "@/server/services/firestore-read";
 import { getCurrentMembership } from "@/server/services/me";
 import { getCurrentSubscription } from "@/server/services/plans";
 
@@ -21,33 +24,46 @@ export default async function RelatoriosPage() {
     redirect("/login");
   }
 
-  const [statusCounts, serviceCounts, revenue, currentSubscription, exports] = await Promise.all([
-    prisma.appointment.groupBy({
-      by: ["status"],
-      where: { businessId: membership.businessId },
-      _count: { status: true },
-    }),
-    prisma.appointment.groupBy({
-      by: ["serviceNameSnapshot"],
-      where: { businessId: membership.businessId },
-      _count: { serviceNameSnapshot: true },
-      orderBy: { _count: { serviceNameSnapshot: "desc" } },
-      take: 5,
-    }),
-    prisma.appointment.aggregate({
-      where: {
-        businessId: membership.businessId,
-        status: { in: ["CONFIRMED", "COMPLETED"] },
-      },
-      _sum: { priceCents: true },
-    }),
+  const [appointments, currentSubscription, exports] = await Promise.all([
+    getAppointmentsForBusinessFromFirestore(membership.businessId),
     getCurrentSubscription(membership.businessId),
-    prisma.dataExport.findMany({
-      where: { businessId: membership.businessId },
-      orderBy: { createdAt: "desc" },
-      take: 5,
-    }),
+    getDataExportsForBusinessFromFirestore(membership.businessId).then((items) => items.slice(0, 5)),
   ]);
+
+  const statusCounts = Object.entries(
+    appointments.reduce<Record<string, number>>((accumulator, appointment) => {
+      accumulator[appointment.status] = (accumulator[appointment.status] ?? 0) + 1;
+      return accumulator;
+    }, {}),
+  ).map(([status, count]) => ({
+    status,
+    _count: { status: count },
+  }));
+
+  const serviceCounts = Object.entries(
+    appointments.reduce<Record<string, number>>((accumulator, appointment) => {
+      accumulator[appointment.serviceNameSnapshot] =
+        (accumulator[appointment.serviceNameSnapshot] ?? 0) + 1;
+      return accumulator;
+    }, {}),
+  )
+    .map(([serviceNameSnapshot, count]) => ({
+      serviceNameSnapshot,
+      _count: { serviceNameSnapshot: count },
+    }))
+    .sort(
+      (left, right) =>
+        right._count.serviceNameSnapshot - left._count.serviceNameSnapshot,
+    )
+    .slice(0, 5);
+
+  const revenueCents = appointments.reduce((sum, appointment) => {
+    if (appointment.status !== "CONFIRMED" && appointment.status !== "COMPLETED") {
+      return sum;
+    }
+
+    return sum + appointment.priceCents;
+  }, 0);
 
   return (
     <div className="space-y-8">
@@ -72,7 +88,7 @@ export default async function RelatoriosPage() {
               Receita estimada
             </p>
             <p className="mt-3 text-3xl font-semibold text-[color:var(--color-fg-default)]">
-              {formatCurrencyBRL(revenue._sum.priceCents ?? 0)}
+              {formatCurrencyBRL(revenueCents)}
             </p>
           </article>
           <article className="rounded-[26px] border border-[color:var(--color-border-default)] bg-white p-4 shadow-[0_14px_36px_rgba(15,23,42,0.04)]">

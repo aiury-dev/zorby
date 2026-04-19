@@ -1,6 +1,11 @@
 import { startOfMonth } from "date-fns";
-import { SubscriptionStatus } from "@/generated/prisma/enums";
-import { prisma } from "@/lib/prisma";
+import { SubscriptionStatus } from "@/lib/domain-enums";
+import {
+  countAppointmentsFromFirestore,
+  getBusinessSettingsFromFirestore,
+  getProfessionalsForBusinessFromFirestore,
+  getServicesForBusinessFromFirestore,
+} from "@/server/services/firestore-read";
 
 const ACTIVE_SUBSCRIPTION_STATUSES: SubscriptionStatus[] = [
   SubscriptionStatus.ACTIVE,
@@ -8,11 +13,8 @@ const ACTIVE_SUBSCRIPTION_STATUSES: SubscriptionStatus[] = [
 ];
 
 export async function getCurrentSubscription(businessId: string) {
-  return prisma.subscription.findFirst({
-    where: { businessId },
-    orderBy: { createdAt: "desc" },
-    include: { plan: true },
-  });
+  const business = await getBusinessSettingsFromFirestore(businessId).catch(() => null);
+  return business?.subscriptions[0] ?? null;
 }
 
 export async function getPlanState(businessId: string) {
@@ -44,12 +46,10 @@ export async function assertMonthlyBookingLimit(businessId: string, planMaxMonth
 
   const monthStart = startOfMonth(new Date());
 
-  const count = await prisma.appointment.count({
-    where: {
-      businessId,
-      createdAt: { gte: monthStart },
-      status: { not: "CANCELLED" },
-    },
+  const count = await countAppointmentsFromFirestore({
+    businessId,
+    predicate: (appointment) =>
+      appointment.startsAtUtc >= monthStart && appointment.status !== "CANCELLED",
   });
 
   if (count >= planMaxMonthlyAppointments) {
@@ -62,12 +62,7 @@ export async function assertServicesLimit(businessId: string, maxServices: numbe
     return;
   }
 
-  const count = await prisma.service.count({
-    where: {
-      businessId,
-      deletedAt: null,
-    },
-  });
+  const count = (await getServicesForBusinessFromFirestore(businessId)).length;
 
   if (count >= maxServices) {
     throw new Error("Seu plano atingiu o limite de servicos.");
@@ -79,12 +74,7 @@ export async function assertProfessionalsLimit(businessId: string, maxProfession
     return;
   }
 
-  const count = await prisma.professional.count({
-    where: {
-      businessId,
-      deletedAt: null,
-    },
-  });
+  const count = (await getProfessionalsForBusinessFromFirestore(businessId)).length;
 
   if (count >= maxProfessionals) {
     throw new Error("Seu plano atingiu o limite de profissionais.");

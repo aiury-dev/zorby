@@ -1,4 +1,4 @@
-import { OnboardingStep } from "@/generated/prisma/enums";
+import { OnboardingStep } from "@/lib/domain-enums";
 
 export function getOnboardingStepPath(step: OnboardingStep) {
   switch (step) {

@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { fromZonedTime } from "date-fns-tz";
-import { prisma } from "@/lib/prisma";
+import {
+  getAppointmentsForBusinessDateFromFirestore,
+  getBusinessSettingsFromFirestore,
+} from "@/server/services/firestore-read";
 import { readBearerToken, verifyMobileToken } from "@/server/services/mobile-auth";
 
 function buildDayBounds(date: string, timezone: string) {
@@ -20,36 +23,15 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const date = url.searchParams.get("date") ?? new Date().toISOString().slice(0, 10);
 
-    const business = await prisma.business.findUnique({
-      where: { id: token.businessId },
-      select: { timezone: true },
-    });
+    const business = await getBusinessSettingsFromFirestore(token.businessId);
 
     const timezone = business?.timezone ?? "America/Sao_Paulo";
     const { startUtc, endUtc } = buildDayBounds(date, timezone);
 
-    const appointments = await prisma.appointment.findMany({
-      where: {
-        businessId: token.businessId,
-        startsAtUtc: { gte: startUtc, lte: endUtc },
-      },
-      orderBy: { startsAtUtc: "asc" },
-      select: {
-        id: true,
-        customerNameSnapshot: true,
-        customerPhoneSnapshot: true,
-        serviceNameSnapshot: true,
-        startsAtUtc: true,
-        endsAtUtc: true,
-        status: true,
-        priceCents: true,
-        professional: {
-          select: {
-            displayName: true,
-            roleLabel: true,
-          },
-        },
-      },
+    const appointments = await getAppointmentsForBusinessDateFromFirestore({
+      businessId: token.businessId,
+      startUtc,
+      endUtc,
     });
 
     return NextResponse.json({ timezone, appointments });

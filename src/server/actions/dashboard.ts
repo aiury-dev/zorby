@@ -1,5 +1,6 @@
 "use server";
 
+import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
@@ -9,15 +10,36 @@ import {
   OnboardingStep,
   PlanCode,
   ProfessionalStatus,
-} from "@/generated/prisma/enums";
-import { prisma } from "@/lib/prisma";
+} from "@/lib/domain-enums";
 import { enqueuePrivacyExport } from "@/server/queues/jobs";
 import {
   geocodeBusinessAddress,
   generateUniqueBusinessSlug,
   hasCompleteBusinessAddress,
 } from "@/server/services/business";
+import {
+  getAppointmentsForBusinessFromFirestore,
+  getCustomerByIdFromFirestore,
+  getUserByIdFromFirestore,
+} from "@/server/services/firestore-read";
+import {
+  deleteAvailabilityDocument,
+  syncAvailabilityDocument,
+  syncAppointmentDocument,
+  syncAppointmentStatusHistoryDocument,
+  syncBusinessDocument,
+  syncDataExportDocument,
+  syncPrivacyRequestDocument,
+  syncProfessionalDocument,
+  syncProfessionalServiceDocuments,
+  syncServiceDocument,
+} from "@/server/services/firebase-sync";
 import { getCurrentMembership } from "@/server/services/me";
+import {
+  getBusinessSettings,
+  getProfessionalsForBusiness,
+  getServicesForBusiness,
+} from "@/server/services/business";
 import { assertProfessionalsLimit, assertServicesLimit, getCurrentSubscription } from "@/server/services/plans";
 import {
   cancelMercadoPagoSubscription,
@@ -122,26 +144,28 @@ export async function saveBusinessStep(formData: FormData) {
     country,
   });
 
-  await prisma.business.update({
-    where: { id: membership.businessId },
-    data: {
-      name,
-      category,
-      description: description || null,
-      addressLine1: addressLine1 || null,
-      addressLine2: addressLine2 || null,
-      neighborhood: neighborhood || null,
-      city: city || null,
-      state: state || null,
-      postalCode: postalCode || null,
-      country,
-      phone: phone || null,
-      timezone,
-      latitude: geocoded?.latitude ?? null,
-      longitude: geocoded?.longitude ?? null,
-      onboardingStep: OnboardingStep.SERVICES,
-    },
-  });
+  await syncBusinessDocument({
+    id: membership.businessId,
+    name,
+    slug: membership.business.slug,
+    category,
+    status: membership.business.status,
+    description: description || null,
+    addressLine1: addressLine1 || null,
+    addressLine2: addressLine2 || null,
+    neighborhood: neighborhood || null,
+    city: city || null,
+    state: state || null,
+    postalCode: postalCode || null,
+    country,
+    phone: phone || null,
+    timezone,
+    latitude: geocoded?.latitude ?? null,
+    longitude: geocoded?.longitude ?? null,
+    onboardingStep: OnboardingStep.SERVICES,
+    publicBookingEnabled: membership.business.publicBookingEnabled,
+    publicBookingPaused: membership.business.publicBookingPaused,
+  }).catch(() => undefined);
 
   revalidatePath("/dashboard");
   redirect("/onboarding/services");
@@ -159,23 +183,51 @@ export async function createServiceAction(formData: FormData) {
     const priceInReais = Number(formData.get("price") ?? 0);
     const colorHex = String(formData.get("colorHex") ?? "#1664E8");
 
-    await prisma.service.create({
-      data: {
-        businessId: membership.businessId,
-        name,
-        slug: await generateUniqueBusinessSlug(`${membership.business.slug}-${name}`),
-        description: description || null,
-        durationMinutes,
-        priceCents: Math.round(priceInReais * 100),
-        colorHex,
-      },
-    });
+    const service = {
+      id: randomUUID(),
+      businessId: membership.businessId,
+      name,
+      slug: await generateUniqueBusinessSlug(`${membership.business.slug}-${name}`),
+      description: description || null,
+      durationMinutes,
+      bufferAfterMinutes: 0,
+      priceCents: Math.round(priceInReais * 100),
+      colorHex,
+      isActive: true,
+      sortOrder: 0,
+      prepaymentMode: "NONE" as const,
+      prepaymentAmountCents: null,
+    };
+
+    await syncServiceDocument({
+      id: service.id,
+      businessId: service.businessId,
+      name: service.name,
+      slug: service.slug,
+      description: service.description,
+      durationMinutes: service.durationMinutes,
+      bufferAfterMinutes: service.bufferAfterMinutes,
+      priceCents: service.priceCents,
+      colorHex: service.colorHex,
+      isActive: service.isActive,
+      sortOrder: service.sortOrder,
+      prepaymentMode: service.prepaymentMode,
+      prepaymentAmountCents: service.prepaymentAmountCents,
+    }).catch(() => undefined);
 
     if (membership.business.onboardingStep === OnboardingStep.SERVICES) {
-      await prisma.business.update({
-        where: { id: membership.businessId },
-        data: { onboardingStep: OnboardingStep.AVAILABILITY },
-      });
+      await syncBusinessDocument({
+        id: membership.businessId,
+        name: membership.business.name,
+        slug: membership.business.slug,
+        category: membership.business.category,
+        status: membership.business.status,
+        onboardingStep: OnboardingStep.AVAILABILITY,
+        publicBookingEnabled: membership.business.publicBookingEnabled,
+        publicBookingPaused: membership.business.publicBookingPaused,
+        timezone: membership.business.timezone,
+        indexable: membership.business.indexable,
+      }).catch(() => undefined);
     }
 
     revalidatePath("/dashboard/servicos");
@@ -191,12 +243,7 @@ export async function continueToAvailabilityAction() {
   try {
     const membership = await requireMembership();
 
-    const servicesCount = await prisma.service.count({
-      where: {
-        businessId: membership.businessId,
-        deletedAt: null,
-      },
-    });
+    const servicesCount = (await getServicesForBusiness(membership.businessId)).length;
 
     if (!servicesCount) {
       await redirectBackWithError(
@@ -206,10 +253,18 @@ export async function continueToAvailabilityAction() {
     }
 
     if (membership.business.onboardingStep === OnboardingStep.SERVICES) {
-      await prisma.business.update({
-        where: { id: membership.businessId },
-        data: { onboardingStep: OnboardingStep.AVAILABILITY },
-      });
+      await syncBusinessDocument({
+        id: membership.businessId,
+        name: membership.business.name,
+        slug: membership.business.slug,
+        category: membership.business.category,
+        status: membership.business.status,
+        onboardingStep: OnboardingStep.AVAILABILITY,
+        publicBookingEnabled: membership.business.publicBookingEnabled,
+        publicBookingPaused: membership.business.publicBookingPaused,
+        timezone: membership.business.timezone,
+        indexable: membership.business.indexable,
+      }).catch(() => undefined);
     }
 
     redirect("/onboarding/availability");
@@ -233,26 +288,44 @@ export async function createProfessionalAction(formData: FormData) {
     .map((value) => String(value))
     .filter(Boolean);
 
-  const professional = await prisma.professional.create({
-    data: {
-      businessId: membership.businessId,
-      displayName,
-      roleLabel: roleLabel || null,
-      photoUrl: photoUrl || null,
-      slug: await generateUniqueBusinessSlug(`${membership.business.slug}-${displayName}`),
-    },
-  });
+  const professional = {
+    id: randomUUID(),
+    businessId: membership.businessId,
+    displayName,
+    publicDisplayName: null,
+    roleLabel: roleLabel || null,
+    photoUrl: photoUrl || null,
+    slug: await generateUniqueBusinessSlug(`${membership.business.slug}-${displayName}`),
+    email: null,
+    phone: null,
+    bio: null,
+    status: ProfessionalStatus.ACTIVE,
+    acceptsOnlineBookings: true,
+    sortOrder: 0,
+  };
 
-  if (serviceIds.length) {
-    await prisma.professionalService.createMany({
-      data: serviceIds.map((serviceId) => ({
-        businessId: membership.businessId,
-        professionalId: professional.id,
-        serviceId,
-      })),
-      skipDuplicates: true,
-    });
-  }
+  await syncProfessionalDocument({
+    id: professional.id,
+    businessId: professional.businessId,
+    displayName: professional.displayName,
+    publicDisplayName: professional.publicDisplayName,
+    roleLabel: professional.roleLabel,
+    slug: professional.slug,
+    email: professional.email,
+    phone: professional.phone,
+    bio: professional.bio,
+    photoUrl: professional.photoUrl,
+    status: professional.status,
+    acceptsOnlineBookings: professional.acceptsOnlineBookings,
+    sortOrder: professional.sortOrder,
+    serviceIds,
+  }).catch(() => undefined);
+
+  await syncProfessionalServiceDocuments({
+    businessId: membership.businessId,
+    professionalId: professional.id,
+    serviceIds,
+  }).catch(() => undefined);
 
   revalidatePath("/dashboard/profissionais");
 }
@@ -261,28 +334,29 @@ export async function toggleServiceStatusAction(formData: FormData) {
   const membership = await requireMembership();
   const serviceId = String(formData.get("serviceId") ?? "");
 
-  const service = await prisma.service.findFirst({
-    where: {
-      id: serviceId,
-      businessId: membership.businessId,
-      deletedAt: null,
-    },
-    select: {
-      id: true,
-      isActive: true,
-    },
-  });
+  const service = (await getServicesForBusiness(membership.businessId)).find(
+    (item) => item.id === serviceId,
+  );
 
   if (!service) {
     throw new Error("Serviço não encontrado.");
   }
 
-  await prisma.service.update({
-    where: { id: service.id },
-    data: {
-      isActive: !service.isActive,
-    },
-  });
+  await syncServiceDocument({
+    id: service.id,
+    businessId: service.businessId,
+    name: service.name,
+    slug: service.slug,
+    description: service.description,
+    durationMinutes: service.durationMinutes,
+    bufferAfterMinutes: service.bufferAfterMinutes,
+    priceCents: service.priceCents,
+    colorHex: service.colorHex,
+    isActive: !service.isActive,
+    sortOrder: service.sortOrder,
+    prepaymentMode: service.prepaymentMode,
+    prepaymentAmountCents: service.prepaymentAmountCents,
+  }).catch(() => undefined);
 
   revalidatePath("/dashboard/servicos");
 }
@@ -291,32 +365,35 @@ export async function toggleProfessionalStatusAction(formData: FormData) {
   const membership = await requireMembership();
   const professionalId = String(formData.get("professionalId") ?? "");
 
-  const professional = await prisma.professional.findFirst({
-    where: {
-      id: professionalId,
-      businessId: membership.businessId,
-      deletedAt: null,
-    },
-    select: {
-      id: true,
-      status: true,
-    },
-  });
+  const professional = (await getProfessionalsForBusiness(membership.businessId)).find(
+    (item) => item.id === professionalId,
+  );
 
   if (!professional) {
     throw new Error("Profissional não encontrado.");
   }
 
-  await prisma.professional.update({
-    where: { id: professional.id },
-    data: {
-      status:
-        professional.status === ProfessionalStatus.ACTIVE
-          ? ProfessionalStatus.INACTIVE
-          : ProfessionalStatus.ACTIVE,
-      acceptsOnlineBookings: professional.status !== ProfessionalStatus.ACTIVE,
-    },
-  });
+  const nextStatus =
+    professional.status === ProfessionalStatus.ACTIVE
+      ? ProfessionalStatus.INACTIVE
+      : ProfessionalStatus.ACTIVE;
+
+  await syncProfessionalDocument({
+    id: professional.id,
+    businessId: professional.businessId,
+    displayName: professional.displayName,
+    publicDisplayName: professional.publicDisplayName,
+    roleLabel: professional.roleLabel,
+    slug: professional.slug,
+    email: professional.email,
+    phone: professional.phone,
+    bio: professional.bio,
+    photoUrl: professional.photoUrl,
+    status: nextStatus,
+    acceptsOnlineBookings: professional.status !== ProfessionalStatus.ACTIVE,
+    sortOrder: professional.sortOrder,
+    serviceIds: professional.services.map((item) => item.serviceId),
+  }).catch(() => undefined);
 
   revalidatePath("/dashboard/profissionais");
 }
@@ -329,21 +406,41 @@ export async function saveAvailabilityStep(formData: FormData) {
   const endMinutes = parseMinutesInput(formData.get("endMinutes"), 1080);
   const slotIntervalMinutes = Number(formData.get("slotIntervalMinutes") ?? 30);
 
-  await prisma.availability.create({
-    data: {
-      businessId: membership.businessId,
-      professionalId,
-      dayOfWeek,
-      startMinutes,
-      endMinutes,
-      slotIntervalMinutes,
-    },
-  });
+  const availability = {
+    id: randomUUID(),
+    businessId: membership.businessId,
+    professionalId,
+    dayOfWeek,
+    startMinutes,
+    endMinutes,
+    slotIntervalMinutes,
+    capacity: 1,
+    isActive: true,
+  };
 
-  await prisma.business.update({
-    where: { id: membership.businessId },
-    data: { onboardingStep: OnboardingStep.LINK },
-  });
+  await syncAvailabilityDocument({
+    id: availability.id,
+    businessId: availability.businessId,
+    professionalId: availability.professionalId,
+    dayOfWeek: availability.dayOfWeek,
+    startMinutes: availability.startMinutes,
+    endMinutes: availability.endMinutes,
+    slotIntervalMinutes: availability.slotIntervalMinutes,
+    capacity: availability.capacity,
+    isActive: availability.isActive,
+  }).catch(() => undefined);
+
+  await syncBusinessDocument({
+    id: membership.businessId,
+    name: membership.business.name,
+    slug: membership.business.slug,
+    category: membership.business.category,
+    status: membership.business.status,
+    onboardingStep: OnboardingStep.LINK,
+    publicBookingEnabled: membership.business.publicBookingEnabled,
+    publicBookingPaused: membership.business.publicBookingPaused,
+    timezone: membership.business.timezone,
+  }).catch(() => undefined);
 
   revalidatePath("/dashboard/agenda");
   redirect("/onboarding/link");
@@ -358,17 +455,29 @@ export async function createAvailabilityAction(formData: FormData) {
   const slotIntervalMinutes = Number(formData.get("slotIntervalMinutes") ?? 30);
   const capacity = Number(formData.get("capacity") ?? 1);
 
-  await prisma.availability.create({
-    data: {
-      businessId: membership.businessId,
-      professionalId,
-      dayOfWeek,
-      startMinutes,
-      endMinutes,
-      slotIntervalMinutes,
-      capacity,
-    },
-  });
+  const availability = {
+    id: randomUUID(),
+    businessId: membership.businessId,
+    professionalId,
+    dayOfWeek,
+    startMinutes,
+    endMinutes,
+    slotIntervalMinutes,
+    capacity,
+    isActive: true,
+  };
+
+  await syncAvailabilityDocument({
+    id: availability.id,
+    businessId: availability.businessId,
+    professionalId: availability.professionalId,
+    dayOfWeek: availability.dayOfWeek,
+    startMinutes: availability.startMinutes,
+    endMinutes: availability.endMinutes,
+    slotIntervalMinutes: availability.slotIntervalMinutes,
+    capacity: availability.capacity,
+    isActive: availability.isActive,
+  }).catch(() => undefined);
 
   revalidatePath("/dashboard/disponibilidade");
 }
@@ -377,12 +486,7 @@ export async function deleteAvailabilityAction(formData: FormData) {
   const membership = await requireMembership();
   const availabilityId = String(formData.get("availabilityId") ?? "");
 
-  await prisma.availability.deleteMany({
-    where: {
-      id: availabilityId,
-      businessId: membership.businessId,
-    },
-  });
+  await deleteAvailabilityDocument(availabilityId);
 
   revalidatePath("/dashboard/disponibilidade");
 }
@@ -406,51 +510,44 @@ export async function saveBusinessSettingsAction(formData: FormData) {
     country,
   });
 
-  await prisma.business.update({
-    where: { id: membership.businessId },
-    data: {
-      bookingTitle: String(formData.get("bookingTitle") ?? "").trim() || null,
-      description: String(formData.get("description") ?? "").trim() || null,
-      phone: String(formData.get("phone") ?? "").trim() || null,
-      addressLine1: addressLine1 || null,
-      addressLine2: addressLine2 || null,
-      neighborhood: neighborhood || null,
-      city: city || null,
-      state: state || null,
-      postalCode: postalCode || null,
-      country,
-      latitude: geocoded?.latitude ?? null,
-      longitude: geocoded?.longitude ?? null,
-      logoUrl: String(formData.get("logoUrl") ?? "").trim() || null,
-      coverImageUrl: String(formData.get("coverImageUrl") ?? "").trim() || null,
-      cancellationPolicyText: String(formData.get("cancellationPolicyText") ?? "").trim() || null,
-      minimumLeadTimeMinutes: Number(formData.get("minimumLeadTimeMinutes") ?? 60),
-      cancellationNoticeMinutes: Number(formData.get("cancellationNoticeMinutes") ?? 120),
-      brandPrimaryColor: String(formData.get("brandPrimaryColor") ?? "").trim() || "#1664E8",
-      brandSecondaryColor: String(formData.get("brandSecondaryColor") ?? "").trim() || "#1254C7",
-    },
-  });
+  await syncBusinessDocument({
+    id: membership.businessId,
+    name: membership.business.name,
+    slug: membership.business.slug,
+    category: membership.business.category,
+    status: membership.business.status,
+    bookingTitle: String(formData.get("bookingTitle") ?? "").trim() || null,
+    description: String(formData.get("description") ?? "").trim() || null,
+    phone: String(formData.get("phone") ?? "").trim() || null,
+    addressLine1: addressLine1 || null,
+    addressLine2: addressLine2 || null,
+    neighborhood: neighborhood || null,
+    city: city || null,
+    state: state || null,
+    postalCode: postalCode || null,
+    country,
+    latitude: geocoded?.latitude ?? null,
+    longitude: geocoded?.longitude ?? null,
+    logoUrl: String(formData.get("logoUrl") ?? "").trim() || null,
+    coverImageUrl: String(formData.get("coverImageUrl") ?? "").trim() || null,
+    cancellationPolicyText: String(formData.get("cancellationPolicyText") ?? "").trim() || null,
+    cancellationNoticeMinutes: Number(formData.get("cancellationNoticeMinutes") ?? 120),
+    minimumLeadTimeMinutes: Number(formData.get("minimumLeadTimeMinutes") ?? 60),
+    brandPrimaryColor: String(formData.get("brandPrimaryColor") ?? "").trim() || "#1664E8",
+    brandSecondaryColor: String(formData.get("brandSecondaryColor") ?? "").trim() || "#1254C7",
+    publicBookingEnabled: membership.business.publicBookingEnabled,
+    publicBookingPaused: membership.business.publicBookingPaused,
+    onboardingStep: membership.business.onboardingStep,
+    timezone: membership.business.timezone,
+    indexable: membership.business.indexable,
+  }).catch(() => undefined);
 
   revalidatePath("/dashboard/configuracoes");
 }
 
 export async function publishBookingLinkAction() {
   const membership = await requireMembership();
-  const business = await prisma.business.findUnique({
-    where: { id: membership.businessId },
-    select: {
-      id: true,
-      addressLine1: true,
-      addressLine2: true,
-      neighborhood: true,
-      city: true,
-      state: true,
-      postalCode: true,
-      country: true,
-      latitude: true,
-      longitude: true,
-    },
-  });
+  const business = await getBusinessSettings(membership.businessId);
 
   if (!business) {
     await redirectBackWithError("Não encontramos o negócio para publicar a página.", "/onboarding/link");
@@ -477,17 +574,26 @@ export async function publishBookingLinkAction() {
           country: business.country,
         });
 
-  await prisma.business.update({
-    where: { id: membership.businessId },
-    data: {
-      publicBookingEnabled: true,
-      status: "ACTIVE",
-      latitude: geocoded?.latitude ?? undefined,
-      longitude: geocoded?.longitude ?? undefined,
-      onboardingStep: OnboardingStep.COMPLETED,
-      onboardingCompletedAt: new Date(),
-    },
-  });
+  await syncBusinessDocument({
+    id: membership.businessId,
+    name: membership.business.name,
+    slug: membership.business.slug,
+    category: membership.business.category,
+    status: "ACTIVE",
+    publicBookingEnabled: true,
+    publicBookingPaused: false,
+    onboardingStep: OnboardingStep.COMPLETED,
+    timezone: membership.business.timezone,
+    latitude: geocoded?.latitude ?? (business.latitude ? Number(business.latitude) : null),
+    longitude: geocoded?.longitude ?? (business.longitude ? Number(business.longitude) : null),
+    addressLine1: business.addressLine1,
+    addressLine2: business.addressLine2,
+    neighborhood: business.neighborhood,
+    city: business.city,
+    state: business.state,
+    postalCode: business.postalCode,
+    country: business.country,
+  }).catch(() => undefined);
 
   revalidatePath("/dashboard");
   redirect("/onboarding/completed");
@@ -496,14 +602,15 @@ export async function publishBookingLinkAction() {
 export async function requestAggregatedExportAction() {
   const membership = await requireMembership();
 
-  const exportRecord = await prisma.dataExport.create({
-    data: {
-      businessId: membership.businessId,
-      requestedByUserId: membership.userId,
-      format: "JSON",
-      scope: "AGGREGATED",
-    },
-  });
+  const exportRecord = {
+    id: randomUUID(),
+    businessId: membership.businessId,
+    requestedByUserId: membership.userId,
+    format: "JSON",
+    scope: "AGGREGATED",
+  };
+
+  await syncDataExportDocument(exportRecord).catch(() => undefined);
 
   await enqueuePrivacyExport(exportRecord.id);
   revalidatePath("/dashboard/relatorios");
@@ -517,14 +624,15 @@ export async function requestFullExportAction() {
     throw new Error("Seu plano atual não permite exportação completa.");
   }
 
-  const exportRecord = await prisma.dataExport.create({
-    data: {
-      businessId: membership.businessId,
-      requestedByUserId: membership.userId,
-      format: "JSON",
-      scope: "FULL_CUSTOMERS",
-    },
-  });
+  const exportRecord = {
+    id: randomUUID(),
+    businessId: membership.businessId,
+    requestedByUserId: membership.userId,
+    format: "JSON",
+    scope: "FULL_CUSTOMERS",
+  };
+
+  await syncDataExportDocument(exportRecord).catch(() => undefined);
 
   await enqueuePrivacyExport(exportRecord.id);
   revalidatePath("/dashboard/relatorios");
@@ -536,10 +644,7 @@ export async function startSubscriptionCheckoutAction(formData: FormData) {
   const planCode = String(formData.get("planCode") ?? "").trim() as PlanCode;
   const interval = String(formData.get("interval") ?? "MONTHLY").trim() as BillingInterval;
 
-  const user = await prisma.user.findUnique({
-    where: { id: membership.userId },
-    select: { email: true },
-  });
+  const user = await getUserByIdFromFirestore(membership.userId);
 
   if (!user?.email) {
     throw new Error("Usuário sem e-mail válido para criar assinatura.");
@@ -575,44 +680,48 @@ export async function updateAppointmentStatusAction(formData: FormData) {
   const appointmentId = String(formData.get("appointmentId") ?? "");
   const status = String(formData.get("status") ?? "").trim() as AppointmentStatus;
 
-  const appointment = await prisma.appointment.findFirst({
-    where: {
-      id: appointmentId,
-      businessId: membership.businessId,
-    },
-    select: {
-      id: true,
-      status: true,
-      startsAtUtc: true,
-      completedAt: true,
-      cancelledAt: true,
-      noShowMarkedAt: true,
-    },
-  });
+  const appointment = (await getAppointmentsForBusinessFromFirestore(membership.businessId)).find(
+    (item) => item.id === appointmentId,
+  );
 
   if (!appointment) {
     throw new Error("Agendamento não encontrado.");
   }
 
-  await prisma.appointment.update({
-    where: { id: appointment.id },
-    data: {
-      status,
-      completedAt: status === AppointmentStatus.COMPLETED ? new Date() : null,
-      cancelledAt: status === AppointmentStatus.CANCELLED ? new Date() : null,
-      noShowMarkedAt: status === AppointmentStatus.NO_SHOW ? new Date() : null,
-    },
-  });
+  await syncAppointmentDocument({
+    id: appointment.id,
+    businessId: membership.businessId,
+    professionalId: appointment.professionalId,
+    serviceId: appointment.serviceId,
+    serviceVariantId: appointment.serviceVariantId,
+    customerId: appointment.customerId,
+    status,
+    startsAtUtc: appointment.startsAtUtc.toISOString(),
+    endsAtUtc: appointment.endsAtUtc.toISOString(),
+    timezoneSnapshot: appointment.timezoneSnapshot,
+    customerTimezone: appointment.customerTimezone,
+    customerNameSnapshot: appointment.customerNameSnapshot,
+    customerEmailSnapshot: appointment.customerEmailSnapshot,
+    customerPhoneSnapshot: appointment.customerPhoneSnapshot,
+    serviceNameSnapshot: appointment.serviceNameSnapshot,
+    serviceVariantSnapshot: appointment.serviceVariantSnapshot,
+    priceCents: appointment.priceCents,
+    cancelledAt:
+      status === AppointmentStatus.CANCELLED ? new Date().toISOString() : appointment.cancelledAt?.toISOString() ?? null,
+    completedAt:
+      status === AppointmentStatus.COMPLETED ? new Date().toISOString() : appointment.completedAt?.toISOString() ?? null,
+    noShowMarkedAt:
+      status === AppointmentStatus.NO_SHOW ? new Date().toISOString() : appointment.noShowMarkedAt?.toISOString() ?? null,
+  }).catch(() => undefined);
 
-  await prisma.appointmentStatusHistory.create({
-    data: {
-      appointmentId: appointment.id,
-      fromStatus: appointment.status,
-      toStatus: status,
-      changedByUserId: membership.userId,
-      note: "Status atualizado pelo dashboard.",
-    },
-  });
+  await syncAppointmentStatusHistoryDocument({
+    id: randomUUID(),
+    appointmentId: appointment.id,
+    fromStatus: appointment.status as AppointmentStatus,
+    toStatus: status,
+    changedByUserId: membership.userId,
+    note: "Status atualizado pelo dashboard.",
+  }).catch(() => undefined);
 
   revalidatePath("/dashboard");
   revalidatePath("/dashboard/agenda");
@@ -623,35 +732,25 @@ export async function requestCustomerDeletionAction(formData: FormData) {
   const membership = await requireMembership();
   const customerId = String(formData.get("customerId") ?? "");
 
-  const customer = await prisma.customer.findFirst({
-    where: {
-      id: customerId,
-      businessId: membership.businessId,
-      deletedAt: null,
-    },
-    select: {
-      id: true,
-      fullName: true,
-      email: true,
-      phone: true,
-    },
+  const customer = await getCustomerByIdFromFirestore({
+    businessId: membership.businessId,
+    customerId,
   });
 
   if (!customer) {
     throw new Error("Cliente não encontrado.");
   }
 
-  await prisma.privacyRequest.create({
-    data: {
-      businessId: membership.businessId,
-      customerId: customer.id,
-      type: "DELETE",
-      requesterName: customer.fullName,
-      requesterEmail: customer.email,
-      requesterPhone: customer.phone,
-      note: "Solicitação criada pelo dashboard.",
-    },
-  });
+  await syncPrivacyRequestDocument({
+    id: randomUUID(),
+    businessId: membership.businessId,
+    customerId: customer.id,
+    type: "DELETE",
+    requesterName: customer.fullName,
+    requesterEmail: customer.email,
+    requesterPhone: customer.phone,
+    note: "Solicitação criada pelo dashboard.",
+  }).catch(() => undefined);
 
   revalidatePath("/dashboard/clientes");
 }

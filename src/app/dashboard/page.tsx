@@ -12,8 +12,14 @@ import {
   Zap,
 } from "lucide-react";
 import { LiveDashboardFeed } from "@/components/dashboard/live-dashboard-feed";
-import { prisma } from "@/lib/prisma";
 import { formatCurrencyBRL } from "@/lib/utils";
+import {
+  countAppointmentsFromFirestore,
+  getAppointmentRevenueMonthCentsFromFirestore,
+  getAppointmentStatusBreakdownFromFirestore,
+  getAppointmentsForBusinessDateFromFirestore,
+  getUpcomingAppointmentsFromFirestore,
+} from "@/server/services/firestore-read";
 import { getCurrentMembership } from "@/server/services/me";
 import { getOnboardingStepPath } from "@/server/services/onboarding";
 
@@ -37,44 +43,27 @@ export default async function DashboardPage() {
 
   const [appointmentsToday, nextAppointments, revenueEstimate, pendingAlerts, alertBreakdown] =
     await Promise.all([
-      prisma.appointment.count({
-        where: {
-          businessId: membership.businessId,
-          startsAtUtc: { gte: startOfDay, lte: endOfDay },
-        },
+      getAppointmentsForBusinessDateFromFirestore({
+        businessId: membership.businessId,
+        startUtc: startOfDay,
+        endUtc: endOfDay,
+      }).then((items) => items.length),
+      getUpcomingAppointmentsFromFirestore({
+        businessId: membership.businessId,
+        startsAfter: now,
+        limit: 5,
       }),
-      prisma.appointment.findMany({
-        where: {
-          businessId: membership.businessId,
-          startsAtUtc: { gte: now },
-        },
-        orderBy: { startsAtUtc: "asc" },
-        take: 5,
-        include: {
-          professional: { select: { displayName: true } },
-        },
+      getAppointmentRevenueMonthCentsFromFirestore({
+        businessId: membership.businessId,
+        monthStart: startOfMonth,
       }),
-      prisma.appointment.aggregate({
-        where: {
-          businessId: membership.businessId,
-          createdAt: { gte: startOfMonth },
-          status: { not: "CANCELLED" },
-        },
-        _sum: { priceCents: true },
+      countAppointmentsFromFirestore({
+        businessId: membership.businessId,
+        predicate: (appointment) => appointment.status === "CANCELLED" || appointment.status === "PENDING",
       }),
-      prisma.appointment.count({
-        where: {
-          businessId: membership.businessId,
-          OR: [{ status: "CANCELLED" }, { status: "PENDING" }],
-        },
-      }),
-      prisma.appointment.groupBy({
-        by: ["status"],
-        where: {
-          businessId: membership.businessId,
-          createdAt: { gte: new Date(Date.now() - 1000 * 60 * 60 * 24) },
-        },
-        _count: { status: true },
+      getAppointmentStatusBreakdownFromFirestore({
+        businessId: membership.businessId,
+        createdAfter: new Date(Date.now() - 1000 * 60 * 60 * 24),
       }),
     ]);
 
@@ -87,7 +76,7 @@ export default async function DashboardPage() {
     },
     {
       label: "Receita do mês",
-      value: formatCurrencyBRL((revenueEstimate._sum.priceCents ?? 0) / 100),
+      value: formatCurrencyBRL(revenueEstimate / 100),
       icon: TrendingUp,
       color: "var(--z-green)",
     },

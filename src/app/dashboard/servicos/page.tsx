@@ -1,8 +1,8 @@
 import { redirect } from "next/navigation";
 import { Layers3, Palette, Sparkles, Wrench } from "lucide-react";
 import { createServiceAction, toggleServiceStatusAction } from "@/server/actions/dashboard";
-import { prisma } from "@/lib/prisma";
 import { formatCurrencyBRL } from "@/lib/utils";
+import { getServicesForBusiness } from "@/server/services/business";
 import { getCurrentMembership } from "@/server/services/me";
 
 export default async function ServicosPage() {
@@ -12,16 +12,7 @@ export default async function ServicosPage() {
     redirect("/login");
   }
 
-  const services = await prisma.service.findMany({
-    where: { businessId: membership.businessId, deletedAt: null },
-    orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }],
-    include: {
-      variants: {
-        where: { deletedAt: null },
-        orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
-      },
-    },
-  });
+  const services = await getServicesForBusiness(membership.businessId);
 
   const activeServices = services.filter((service) => service.isActive).length;
 

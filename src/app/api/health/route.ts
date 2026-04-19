@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { getFirebaseAdminDb } from "@/lib/firebase-admin";
 
 export async function GET() {
   try {
-    await prisma.$queryRaw`SELECT 1`;
+    await getFirebaseAdminDb().listCollections();
 
     return NextResponse.json({
       ok: true,

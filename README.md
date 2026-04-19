@@ -1,37 +1,22 @@
 # Zorby
 
-SaaS de agendamento online para clínicas, salões, barbearias e profissionais autônomos, com página pública de reservas, painel de gestão, assinatura recorrente via Mercado Pago e filas para notificações/exportações.
+SaaS de agendamento online com painel operacional, pagina publica de reservas, worker para notificacoes/exportacoes e base unica em Firebase Auth + Cloud Firestore + Firebase Storage.
 
 ## Stack
 
 - Next.js 15 com App Router
 - TypeScript estrito
-- Prisma + PostgreSQL
-- NextAuth com credenciais, magic link e Google OAuth
-- Tailwind CSS
+- Firebase Auth
+- Cloud Firestore
+- Firebase Storage
+- NextAuth
 - BullMQ + Redis
-- Resend para e-mail
-- Evolution API para WhatsApp
+- Resend para email
 - Mercado Pago para assinaturas
-
-## O que pode ir para GitHub público
-
-Pode ficar público:
-- todo o código em `src/`, `prisma/`, `public/` e `worker/`
-- `package.json`, `package-lock.json`, `tsconfig.json`
-- `.env.example`
-- `render.yaml`
-- `README.md`
-
-Não pode ficar público:
-- `.env`
-- qualquer senha de banco, token, chave de API ou segredo
-- credenciais do Neon, Resend, Mercado Pago, Google, Upstash, Sentry e Cloudflare
-- logs temporários locais
 
 ## Setup local
 
-1. Instale as dependências:
+1. Instale as dependencias:
 
 ```powershell
 npm install
@@ -43,104 +28,85 @@ npm install
 Copy-Item .env.example .env
 ```
 
-3. Ajuste ao menos estas variáveis:
+3. Preencha no minimo:
 
-- `DATABASE_URL`
-- `DIRECT_DATABASE_URL`
+- `APP_URL`
 - `NEXTAUTH_URL`
 - `NEXTAUTH_SECRET`
-- `APP_URL`
+- `FIREBASE_PROJECT_ID`
+- `FIREBASE_CLIENT_EMAIL`
+- `FIREBASE_PRIVATE_KEY`
+- `FIREBASE_STORAGE_BUCKET`
+- `NEXT_PUBLIC_FIREBASE_API_KEY`
+- `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`
+- `NEXT_PUBLIC_FIREBASE_PROJECT_ID`
+- `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET`
+- `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID`
+- `NEXT_PUBLIC_FIREBASE_APP_ID`
 
-4. Gere o client do Prisma e aplique o schema:
-
-```powershell
-npm run db:generate
-npm run db:push
-```
-
-5. Popule os planos base:
-
-```powershell
-npm run db:seed
-```
-
-6. Rode o app web:
+4. Rode o app:
 
 ```powershell
-npm run build
-npm run start -- --port 3010
+npm run dev
 ```
 
-7. Em outro terminal, rode o worker:
+5. Em outro terminal, rode o worker:
 
 ```powershell
 npm run worker:dev
 ```
 
-## Fluxos implementados
-
-- cadastro/login com credenciais, magic link e Google
-- wizard de onboarding
-- página pública `/{slug}` com agendamento em 3 passos
-- disponibilidade em tempo real com cache curto
-- criação pública de agendamento
-- cancelamento e reagendamento por token assinado
-- painel com dashboard, agenda, clientes, serviços, profissionais, configurações e relatórios
-- webhook do Mercado Pago para sincronizar status da assinatura
-- fila BullMQ para confirmações, lembretes, cancelamentos, reagendamentos e exportações LGPD
-
-## Testes
+## Scripts principais
 
 ```powershell
+npm run dev
+npm run build
+npm run start
+npm run worker:dev
+npm run worker:start
+npm run lint
+npm run typecheck
 npm run test
 ```
 
-## Build
-
-```powershell
-npm run build
-```
-
-Observação para Windows: se houver conflito de casing no caminho por causa de `New project`, rode o build a partir de uma unidade `subst` apontando para a pasta do projeto.
-
 ## Deploy no Render
 
-Documentação oficial usada:
-- [Deploy a Next.js App](https://render.com/docs/deploy-nextjs-app)
-- [Default Environment Variables](https://render.com/docs/environment-variables)
-- [Deploying on Render](https://render.com/docs/deploys/)
+O projeto esta pronto para deploy Firebase-only pelo [render.yaml](/C:/Users/Administrator/Documents/New%20Project/zorby/render.yaml).
 
-### Web app
+### Web
 
-Crie um `Web Service` no Render apontando para este repositório.
-
-Valores principais:
-- Runtime: `Node`
-- Build Command: `npm ci && npm run db:generate && npm run build`
+- Build Command: `npm ci && npm run build`
 - Start Command: `npm run start`
 - Health Check Path: `/api/health`
 
 ### Worker
 
-Crie um `Worker` no Render apontando para o mesmo repositório.
-
-Valores principais:
-- Runtime: `Node`
-- Build Command: `npm ci && npm run db:generate`
+- Build Command: `npm ci`
 - Start Command: `npm run worker:start`
 
-### Variáveis obrigatórias no Render
+### Variaveis obrigatorias
 
-- `DATABASE_URL`
-- `DIRECT_DATABASE_URL`
 - `APP_URL`
 - `NEXTAUTH_URL`
 - `NEXTAUTH_SECRET`
+- `FIREBASE_PROJECT_ID`
+- `FIREBASE_CLIENT_EMAIL`
+- `FIREBASE_PRIVATE_KEY`
+- `FIREBASE_STORAGE_BUCKET`
+- `NEXT_PUBLIC_FIREBASE_API_KEY`
+- `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`
+- `NEXT_PUBLIC_FIREBASE_PROJECT_ID`
+- `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET`
+- `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID`
+- `NEXT_PUBLIC_FIREBASE_APP_ID`
 - `UPSTASH_REDIS_REST_URL`
 - `UPSTASH_REDIS_REST_TOKEN`
 - `REDIS_URL`
 - `RESEND_API_KEY`
 - `RESEND_AUDIENCE_EMAIL`
+
+Se usar billing e integracoes:
+
 - `MERCADO_PAGO_ACCESS_TOKEN`
 - `MERCADO_PAGO_WEBHOOK_SECRET`
 - `MERCADO_PAGO_STARTER_PLAN_ID`
@@ -148,46 +114,11 @@ Valores principais:
 - `MERCADO_PAGO_PRO_YEARLY_PLAN_ID`
 - `MERCADO_PAGO_BUSINESS_MONTHLY_PLAN_ID`
 - `MERCADO_PAGO_BUSINESS_YEARLY_PLAN_ID`
+- `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
 
-O arquivo [render.yaml](/C:/Users/Administrator/Documents/New%20project/zorby/render.yaml) já está preparado para isso.
+## Observacoes
 
-## Resend
-
-Documentação oficial:
-- [Managing Domains](https://resend.com/docs/dashboard/domains/introduction)
-- [API Keys](https://resend.com/docs/dashboard/api-keys/introduction)
-
-Você vai precisar:
-- verificar um domínio ou subdomínio de envio
-- criar uma API key
-- definir `RESEND_API_KEY`
-- definir `RESEND_AUDIENCE_EMAIL`
-
-Exemplo recomendado:
-- domínio de envio: `mail.seudominio.com`
-- remetente: `noreply@mail.seudominio.com`
-
-## Mercado Pago
-
-Documentação oficial:
-- [Webhooks](https://www.mercadopago.com.br/developers/pt/docs/checkout-pro/additional-content/notifications/webhooks)
-
-Webhook esperado pelo projeto:
-
-- `POST /api/webhooks/mercadopago`
-
-Exemplo em produção:
-
-- `https://app.seudominio.com/api/webhooks/mercadopago`
-
-## Estrutura
-
-```txt
-src/
-  app/
-  components/
-  lib/
-  server/
-prisma/
-worker/
-```
+- Prisma, Neon e schema relacional legado foram removidos do runtime.
+- O projeto agora assume Firebase como base unica operacional.
+- Para Windows, se houver problema de casing no caminho `New project` vs `New Project`, rode comandos a partir do caminho com casing consistente.

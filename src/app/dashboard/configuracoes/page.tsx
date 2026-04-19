@@ -1,8 +1,9 @@
+import Image from "next/image";
 import { redirect } from "next/navigation";
 import { Globe, ImageIcon, MapPin, Palette, ShieldCheck } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { prisma } from "@/lib/prisma";
 import { saveBusinessSettingsAction } from "@/server/actions/dashboard";
+import { getBusinessSettings } from "@/server/services/business";
 import { getCurrentMembership } from "@/server/services/me";
 
 export default async function ConfiguracoesPage() {
@@ -12,32 +13,7 @@ export default async function ConfiguracoesPage() {
     redirect("/login");
   }
 
-  const business = await prisma.business.findUnique({
-    where: { id: membership.businessId },
-    select: {
-      name: true,
-      slug: true,
-      bookingTitle: true,
-      description: true,
-      phone: true,
-      addressLine1: true,
-      addressLine2: true,
-      neighborhood: true,
-      city: true,
-      state: true,
-      postalCode: true,
-      country: true,
-      latitude: true,
-      longitude: true,
-      logoUrl: true,
-      coverImageUrl: true,
-      cancellationPolicyText: true,
-      minimumLeadTimeMinutes: true,
-      cancellationNoticeMinutes: true,
-      brandPrimaryColor: true,
-      brandSecondaryColor: true,
-    },
-  });
+  const business = await getBusinessSettings(membership.businessId);
 
   if (!business) {
     redirect("/dashboard");
@@ -340,9 +316,13 @@ export default async function ConfiguracoesPage() {
             <div className="space-y-4 p-5">
               <div className="flex items-start gap-4">
                 {business.logoUrl ? (
-                  <img
+                  <Image
                     src={business.logoUrl}
                     alt={`Logo de ${business.name}`}
+                    loader={({ src }) => src}
+                    unoptimized
+                    width={56}
+                    height={56}
                     className="h-14 w-14 rounded-[18px] object-cover"
                   />
                 ) : (

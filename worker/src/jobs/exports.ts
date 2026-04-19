@@ -1,26 +1,56 @@
 import type { Job } from "bullmq";
-import { NotificationStatus } from "@/generated/prisma/enums";
+import { NotificationStatus } from "@/lib/domain-enums";
 import { logger } from "@/lib/logger";
-import { prisma } from "@/lib/prisma";
+import {
+  getAppointmentsForBusinessFromFirestore,
+  getBusinessSettingsFromFirestore,
+  getCustomersForBusinessFromFirestore,
+  getDataExportByIdFromFirestore,
+  getReviewsForBusinessFromFirestore,
+  getUserByIdFromFirestore,
+} from "@/server/services/firestore-read";
+import { syncDataExportDocument } from "@/server/services/firebase-sync";
 import { uploadExportPayload } from "../providers/storage";
 
-export async function processPrivacyExportJob(job: Job<{ exportId: string }>) {
-  const exportRecord = await prisma.dataExport.findUnique({
-    where: { id: job.data.exportId },
-    include: {
-      business: true,
-      requestedByUser: true,
-    },
-  });
-
+function toSyncPayload(exportRecord: Awaited<ReturnType<typeof getDataExportByIdFromFirestore>>) {
   if (!exportRecord) {
-    throw new Error("Solicitacao de exportacao nao encontrada.");
+    throw new Error("Exportação não encontrada para sincronização.");
   }
 
-  await prisma.dataExport.update({
-    where: { id: exportRecord.id },
-    data: { status: NotificationStatus.PROCESSING },
-  });
+  return {
+    id: exportRecord.id,
+    businessId: exportRecord.businessId,
+    requestedByUserId: exportRecord.requestedByUserId,
+    format: exportRecord.format,
+    scope: exportRecord.scope,
+    fileUrl: exportRecord.fileUrl,
+    note: exportRecord.note,
+    completedAt: exportRecord.completedAt?.toISOString() ?? null,
+    createdAt: exportRecord.createdAt?.toISOString(),
+  };
+}
+
+export async function processPrivacyExportJob(job: Job<{ exportId: string }>) {
+  const exportRecord = await getDataExportByIdFromFirestore(job.data.exportId);
+
+  if (!exportRecord) {
+    throw new Error("Solicitação de exportação não encontrada.");
+  }
+
+  const [business, requestedByUser] = await Promise.all([
+    getBusinessSettingsFromFirestore(exportRecord.businessId),
+    getUserByIdFromFirestore(exportRecord.requestedByUserId),
+  ]);
+
+  if (!business) {
+    throw new Error("Negócio da exportação não encontrado.");
+  }
+
+  await syncDataExportDocument({
+    ...toSyncPayload(exportRecord),
+    status: NotificationStatus.PROCESSING,
+    note: null,
+  }).catch(() => undefined);
 
   try {
     const payload =
@@ -29,31 +59,37 @@ export async function processPrivacyExportJob(job: Job<{ exportId: string }>) {
         : await buildFullCustomersPayload(exportRecord.businessId);
 
     const fileUrl = await uploadExportPayload({
-      fileName: `${exportRecord.business.slug}-${exportRecord.id}.json`,
-      payload,
-    });
-
-    await prisma.dataExport.update({
-      where: { id: exportRecord.id },
-      data: {
-        status: NotificationStatus.SENT,
-        fileUrl,
-        completedAt: new Date(),
+      fileName: `${business.slug}-${exportRecord.id}.json`,
+      payload: {
+        ...payload,
+        requestedBy: requestedByUser
+          ? {
+              id: requestedByUser.id,
+              email: requestedByUser.email,
+              name: requestedByUser.name,
+            }
+          : null,
       },
     });
 
-    logger.info("Exportacao LGPD concluida", {
+    await syncDataExportDocument({
+      ...toSyncPayload(exportRecord),
+      status: NotificationStatus.SENT,
+      fileUrl,
+      completedAt: new Date().toISOString(),
+      note: null,
+    }).catch(() => undefined);
+
+    logger.info("Exportação LGPD concluída", {
       exportId: exportRecord.id,
       businessId: exportRecord.businessId,
     });
   } catch (error) {
-    await prisma.dataExport.update({
-      where: { id: exportRecord.id },
-      data: {
-        status: NotificationStatus.FAILED,
-        note: error instanceof Error ? error.message : "Falha ao gerar exportacao.",
-      },
-    });
+    await syncDataExportDocument({
+      ...toSyncPayload(exportRecord),
+      status: NotificationStatus.FAILED,
+      note: error instanceof Error ? error.message : "Falha ao gerar exportação.",
+    }).catch(() => undefined);
 
     throw error;
   }
@@ -61,45 +97,50 @@ export async function processPrivacyExportJob(job: Job<{ exportId: string }>) {
 
 async function buildAggregatedPayload(businessId: string) {
   const [appointments, customers, reviews] = await Promise.all([
-    prisma.appointment.count({ where: { businessId } }),
-    prisma.customer.count({ where: { businessId, deletedAt: null } }),
-    prisma.review.count({ where: { businessId } }),
+    getAppointmentsForBusinessFromFirestore(businessId),
+    getCustomersForBusinessFromFirestore(businessId),
+    getReviewsForBusinessFromFirestore(businessId),
   ]);
 
   return {
     generatedAt: new Date().toISOString(),
     type: "AGGREGATED",
     totals: {
-      appointments,
-      customers,
-      reviews,
+      appointments: appointments.length,
+      customers: customers.length,
+      reviews: reviews.length,
     },
   };
 }
 
 async function buildFullCustomersPayload(businessId: string) {
-  const customers = await prisma.customer.findMany({
-    where: { businessId, deletedAt: null },
-    orderBy: { createdAt: "desc" },
-    include: {
-      appointments: {
-        orderBy: { startsAtUtc: "desc" },
-        select: {
-          id: true,
-          startsAtUtc: true,
-          endsAtUtc: true,
-          status: true,
-          serviceNameSnapshot: true,
-          customerPhoneSnapshot: true,
-          customerEmailSnapshot: true,
-        },
-      },
-    },
-  });
+  const [customers, appointments] = await Promise.all([
+    getCustomersForBusinessFromFirestore(businessId),
+    getAppointmentsForBusinessFromFirestore(businessId),
+  ]);
 
   return {
     generatedAt: new Date().toISOString(),
     type: "FULL_CUSTOMERS",
-    customers,
+    customers: customers.map((customer) => ({
+      id: customer.id,
+      fullName: customer.fullName,
+      email: customer.email,
+      phone: customer.phone,
+      timezone: customer.timezone,
+      lastBookedAt: customer.lastBookedAt?.toISOString() ?? null,
+      appointments: appointments
+        .filter((appointment) => appointment.customerId === customer.id)
+        .sort((left, right) => right.startsAtUtc.getTime() - left.startsAtUtc.getTime())
+        .map((appointment) => ({
+          id: appointment.id,
+          startsAtUtc: appointment.startsAtUtc.toISOString(),
+          endsAtUtc: appointment.endsAtUtc.toISOString(),
+          status: appointment.status,
+          serviceNameSnapshot: appointment.serviceNameSnapshot,
+          customerPhoneSnapshot: appointment.customerPhoneSnapshot,
+          customerEmailSnapshot: appointment.customerEmailSnapshot,
+        })),
+    })),
   };
 }

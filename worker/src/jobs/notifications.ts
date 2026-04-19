@@ -1,17 +1,25 @@
+import { randomUUID } from "crypto";
 import type { Job } from "bullmq";
 import { formatInTimeZone } from "date-fns-tz";
 import {
   NotificationChannel,
   NotificationStatus,
   NotificationType,
-} from "@/generated/prisma/enums";
+} from "@/lib/domain-enums";
 import {
   renderAppointmentConfirmationEmail,
   renderCancellationEmail,
   renderReminder24hEmail,
 } from "@/lib/email-templates";
 import { logger } from "@/lib/logger";
-import { prisma } from "@/lib/prisma";
+import {
+  getAppointmentByIdFromFirestore,
+  getBusinessSettingsFromFirestore,
+  getNotificationTemplatesForBusinessFromFirestore,
+  getNotificationsForAppointmentFromFirestore,
+  getProfessionalsForBusinessFromFirestore,
+} from "@/server/services/firestore-read";
+import { syncNotificationDocument } from "@/server/services/firebase-sync";
 import { sendTransactionalEmail } from "../providers/email";
 import { sendWhatsappMessage } from "../providers/whatsapp";
 
@@ -86,6 +94,22 @@ function buildDefaultCopy(type: NotificationType, variables: Record<string, stri
   }
 }
 
+type NotificationRecord = {
+  id: string;
+  businessId: string;
+  appointmentId: string;
+  customerId?: string | null;
+  channel: NotificationChannel;
+  type: NotificationType;
+  status: NotificationStatus;
+  recipientName?: string | null;
+  recipientEmail?: string | null;
+  recipientPhone?: string | null;
+  payload?: Record<string, string> | null;
+  subject?: string | null;
+  body?: string | null;
+};
+
 async function beginNotificationRecord(input: {
   businessId: string;
   appointmentId: string;
@@ -97,47 +121,38 @@ async function beginNotificationRecord(input: {
   recipientPhone?: string | null;
   payload?: Record<string, string> | null;
 }) {
-  const existing = await prisma.notification.findFirst({
-    where: {
-      businessId: input.businessId,
-      appointmentId: input.appointmentId,
-      type: input.type,
-      channel: input.channel,
-      status: NotificationStatus.PENDING,
-      recipientEmail: input.recipientEmail ?? undefined,
-      recipientPhone: input.recipientPhone ?? undefined,
-    },
-    orderBy: { createdAt: "desc" },
-  });
+  const existing = (await getNotificationsForAppointmentFromFirestore(input.appointmentId)).find(
+    (notification) =>
+      notification.businessId === input.businessId &&
+      notification.type === input.type &&
+      notification.channel === input.channel &&
+      notification.status === NotificationStatus.PENDING &&
+      (notification.recipientEmail ?? null) === (input.recipientEmail ?? null) &&
+      (notification.recipientPhone ?? null) === (input.recipientPhone ?? null),
+  );
 
-  if (existing) {
-    return prisma.notification.update({
-      where: { id: existing.id },
-      data: {
-        status: NotificationStatus.PROCESSING,
-        payload: input.payload ? (input.payload as never) : existing.payload ?? undefined,
-      },
-    });
-  }
+  const notification: NotificationRecord = {
+    id: existing?.id ?? randomUUID(),
+    businessId: input.businessId,
+    appointmentId: input.appointmentId,
+    customerId: input.customerId ?? null,
+    type: input.type,
+    channel: input.channel,
+    status: NotificationStatus.PROCESSING,
+    recipientName: input.recipientName ?? null,
+    recipientEmail: input.recipientEmail ?? null,
+    recipientPhone: input.recipientPhone ?? null,
+    payload: (input.payload ?? (existing?.payload as Record<string, string> | null)) ?? null,
+    subject: existing?.subject ?? null,
+    body: existing?.body ?? null,
+  };
 
-  return prisma.notification.create({
-    data: {
-      businessId: input.businessId,
-      appointmentId: input.appointmentId,
-      customerId: input.customerId ?? null,
-      type: input.type,
-      channel: input.channel,
-      status: NotificationStatus.PROCESSING,
-      recipientName: input.recipientName ?? null,
-      recipientEmail: input.recipientEmail ?? null,
-      recipientPhone: input.recipientPhone ?? null,
-      payload: input.payload ? (input.payload as never) : undefined,
-    },
-  });
+  await syncNotificationDocument(notification);
+  return notification;
 }
 
 async function completeNotificationRecord(
-  id: string,
+  notification: NotificationRecord,
   input: {
     status: NotificationStatus;
     subject?: string;
@@ -145,16 +160,14 @@ async function completeNotificationRecord(
     errorMessage?: string;
   },
 ) {
-  await prisma.notification.update({
-    where: { id },
-    data: {
-      status: input.status,
-      subject: input.subject ?? undefined,
-      body: input.body ?? undefined,
-      sentAt: input.status === NotificationStatus.SENT ? new Date() : undefined,
-      failedAt: input.status === NotificationStatus.FAILED ? new Date() : undefined,
-      errorMessage: input.errorMessage ?? undefined,
-    },
+  await syncNotificationDocument({
+    ...notification,
+    status: input.status,
+    subject: input.subject ?? null,
+    body: input.body ?? null,
+    sentAt: input.status === NotificationStatus.SENT ? new Date().toISOString() : null,
+    failedAt: input.status === NotificationStatus.FAILED ? new Date().toISOString() : null,
+    errorMessage: input.errorMessage ?? null,
   });
 }
 
@@ -166,31 +179,26 @@ export async function processNotificationJob(job: Job<{ appointmentId: string }>
     return;
   }
 
-  const appointment = await prisma.appointment.findUnique({
-    where: { id: job.data.appointmentId },
-    include: {
-      business: {
-        include: {
-          subscriptions: {
-            include: { plan: true },
-            orderBy: { createdAt: "desc" },
-            take: 1,
-          },
-        },
-      },
-      customer: true,
-      professional: true,
-    },
-  });
+  const appointment = await getAppointmentByIdFromFirestore(job.data.appointmentId);
 
   if (!appointment) {
     throw new Error("Agendamento nao encontrado para a fila de notificacoes.");
   }
 
+  const [business, professionals, notifications, notificationTemplates] = await Promise.all([
+    getBusinessSettingsFromFirestore(appointment.businessId),
+    getProfessionalsForBusinessFromFirestore(appointment.businessId),
+    getNotificationsForAppointmentFromFirestore(appointment.id),
+    getNotificationTemplatesForBusinessFromFirestore(appointment.businessId),
+  ]);
+
+  if (!business) {
+    throw new Error("Negocio nao encontrado para a fila de notificacoes.");
+  }
+
   if (
-    [NotificationType.REMINDER_24H, NotificationType.REMINDER_1H].some(
-      (type) => type === notificationType,
-    ) &&
+    (notificationType === NotificationType.REMINDER_24H ||
+      notificationType === NotificationType.REMINDER_1H) &&
     appointment.status === "CANCELLED"
   ) {
     logger.info("Lembrete ignorado porque o agendamento foi cancelado", {
@@ -200,47 +208,31 @@ export async function processNotificationJob(job: Job<{ appointmentId: string }>
     return;
   }
 
-  const currentPlan = appointment.business.subscriptions[0]?.plan;
-  const sourceNotification = await prisma.notification.findFirst({
-    where: {
-      appointmentId: appointment.id,
-      type: notificationType,
-    },
-    orderBy: { createdAt: "desc" },
-  });
-  const customEmailTemplate = await prisma.notificationTemplate.findFirst({
-    where: {
-      businessId: appointment.businessId,
-      channel: NotificationChannel.EMAIL,
-      type: notificationType,
-      isActive: true,
-    },
-  });
-  const customWhatsappTemplate = await prisma.notificationTemplate.findFirst({
-    where: {
-      businessId: appointment.businessId,
-      channel: NotificationChannel.WHATSAPP,
-      type: notificationType,
-      isActive: true,
-    },
-  });
+  const currentPlan = business.subscriptions[0]?.plan;
+  const sourceNotification = notifications.find((notification) => notification.type === notificationType);
+  const customEmailTemplate = notificationTemplates.find(
+    (template) => template.channel === NotificationChannel.EMAIL && template.type === notificationType,
+  );
+  const customWhatsappTemplate = notificationTemplates.find(
+    (template) =>
+      template.channel === NotificationChannel.WHATSAPP && template.type === notificationType,
+  );
+  const professional =
+    professionals.find((item) => item.id === appointment.professionalId) ?? appointment.professional;
 
   const variables = {
-    business_name: appointment.business.name,
+    business_name: business.name,
     customer_name: appointment.customerNameSnapshot,
-    professional_name: appointment.professional.displayName,
+    professional_name: professional.displayName,
     service_name: appointment.serviceNameSnapshot,
     starts_at: formatInTimeZone(
       appointment.startsAtUtc,
       appointment.timezoneSnapshot,
       "dd/MM/yyyy 'as' HH:mm",
     ),
-    location:
-      appointment.locationNameSnapshot ||
-      [appointment.business.neighborhood, appointment.business.city].filter(Boolean).join(", ") ||
-      appointment.business.name,
-    booking_url: `${process.env.APP_URL ?? "http://localhost:3000"}/${appointment.business.slug}`,
-    cancellation_policy: appointment.business.cancellationPolicyText ?? "",
+    location: [business.neighborhood, business.city].filter(Boolean).join(", ") || business.name,
+    booking_url: `${process.env.APP_URL ?? "http://localhost:3000"}/${business.slug}`,
+    cancellation_policy: business.cancellationPolicyText ?? "",
     cancel_url:
       typeof sourceNotification?.payload === "object" &&
       sourceNotification?.payload &&
@@ -280,14 +272,14 @@ export async function processNotificationJob(job: Job<{ appointmentId: string }>
         html: emailBody,
       });
 
-      await completeNotificationRecord(notification.id, {
+      await completeNotificationRecord(notification, {
         status: result.skipped ? NotificationStatus.CANCELED : NotificationStatus.SENT,
         subject: emailSubject,
         body: emailBody,
         errorMessage: result.skipped ? result.reason : undefined,
       });
     } catch (error) {
-      await completeNotificationRecord(notification.id, {
+      await completeNotificationRecord(notification, {
         status: NotificationStatus.FAILED,
         subject: emailSubject,
         body: emailBody,
@@ -297,15 +289,15 @@ export async function processNotificationJob(job: Job<{ appointmentId: string }>
     }
   }
 
-  if (appointment.business.email) {
+  if (business.email) {
     const businessNotification = await beginNotificationRecord({
       businessId: appointment.businessId,
       appointmentId: appointment.id,
       customerId: appointment.customerId,
       type: notificationType,
       channel: NotificationChannel.EMAIL,
-      recipientName: appointment.business.name,
-      recipientEmail: appointment.business.email,
+      recipientName: business.name,
+      recipientEmail: business.email,
       payload: { audience: "business" },
     });
 
@@ -319,19 +311,19 @@ export async function processNotificationJob(job: Job<{ appointmentId: string }>
 
     try {
       const result = await sendTransactionalEmail({
-        to: appointment.business.email,
+        to: business.email,
         subject: operationalSubject,
         html: operationalBody,
       });
 
-      await completeNotificationRecord(businessNotification.id, {
+      await completeNotificationRecord(businessNotification, {
         status: result.skipped ? NotificationStatus.CANCELED : NotificationStatus.SENT,
         subject: operationalSubject,
         body: operationalBody,
         errorMessage: result.skipped ? result.reason : undefined,
       });
     } catch (error) {
-      await completeNotificationRecord(businessNotification.id, {
+      await completeNotificationRecord(businessNotification, {
         status: NotificationStatus.FAILED,
         subject: operationalSubject,
         body: operationalBody,
@@ -364,13 +356,13 @@ export async function processNotificationJob(job: Job<{ appointmentId: string }>
         text: whatsappCopy,
       });
 
-      await completeNotificationRecord(whatsappNotification.id, {
+      await completeNotificationRecord(whatsappNotification, {
         status: result.skipped ? NotificationStatus.CANCELED : NotificationStatus.SENT,
         body: whatsappCopy,
         errorMessage: result.skipped ? result.reason : undefined,
       });
     } catch (error) {
-      await completeNotificationRecord(whatsappNotification.id, {
+      await completeNotificationRecord(whatsappNotification, {
         status: NotificationStatus.FAILED,
         body: whatsappCopy,
         errorMessage: error instanceof Error ? error.message : "Falha ao enviar WhatsApp.",

@@ -1,7 +1,8 @@
+import Image from "next/image";
 import { redirect } from "next/navigation";
 import { BriefcaseBusiness, Sparkles, UserRound, UsersRound } from "lucide-react";
 import { createProfessionalAction, toggleProfessionalStatusAction } from "@/server/actions/dashboard";
-import { prisma } from "@/lib/prisma";
+import { getProfessionalsForBusiness, getServicesForBusiness } from "@/server/services/business";
 import { getCurrentMembership } from "@/server/services/me";
 
 export default async function ProfissionaisPage() {
@@ -12,37 +13,15 @@ export default async function ProfissionaisPage() {
   }
 
   const [professionals, services] = await Promise.all([
-    prisma.professional.findMany({
-      where: { businessId: membership.businessId, deletedAt: null },
-      orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }],
-      include: {
-        services: {
-          include: {
-            service: {
-              select: {
-                id: true,
-                name: true,
-              },
-            },
-          },
-          orderBy: {
-            createdAt: "asc",
-          },
-        },
-      },
-    }),
-    prisma.service.findMany({
-      where: {
-        businessId: membership.businessId,
-        deletedAt: null,
-        isActive: true,
-      },
-      orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
-      select: {
-        id: true,
-        name: true,
-      },
-    }),
+    getProfessionalsForBusiness(membership.businessId),
+    getServicesForBusiness(membership.businessId).then((items) =>
+      items
+        .filter((service) => service.isActive)
+        .map((service) => ({
+          id: service.id,
+          name: service.name,
+        })),
+    ),
   ]);
 
   const activeProfessionals = professionals.filter((professional) => professional.status === "ACTIVE").length;
@@ -227,9 +206,13 @@ export default async function ProfissionaisPage() {
             >
               <div className="flex items-start gap-4">
                 {professional.photoUrl ? (
-                  <img
+                  <Image
                     src={professional.photoUrl}
                     alt={`Foto de ${professional.displayName}`}
+                    loader={({ src }) => src}
+                    unoptimized
+                    width={64}
+                    height={64}
                     className="h-16 w-16 rounded-[20px] object-cover"
                   />
                 ) : (

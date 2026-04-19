@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import { addDays } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
@@ -160,9 +161,11 @@ function Avatar({
 
   if (photo) {
     return (
-      <img
+      <Image
         src={photo}
         alt={name}
+        loader={({ src }) => src}
+        unoptimized
         width={size}
         height={size}
         className="rounded-full object-cover flex-shrink-0"
@@ -514,10 +517,14 @@ export function BookingExperience(props: BookingExperienceProps) {
     >
       <div className="relative h-[240px] overflow-hidden sm:h-[280px]">
         {props.coverImageUrl ? (
-          <img
+          <Image
             src={props.coverImageUrl}
             alt={props.name}
-            className="absolute inset-0 h-full w-full object-cover"
+            loader={({ src }) => src}
+            unoptimized
+            fill
+            sizes="100vw"
+            className="object-cover"
           />
         ) : (
           <div
@@ -536,9 +543,13 @@ export function BookingExperience(props: BookingExperienceProps) {
             <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
               <div className="flex items-end gap-4">
                 {props.logoUrl ? (
-                  <img
+                  <Image
                     src={props.logoUrl}
                     alt={props.name}
+                    loader={({ src }) => src}
+                    unoptimized
+                    width={72}
+                    height={72}
                     className="h-18 w-18 rounded-[26px] border-4 border-white object-cover shadow-lg"
                   />
                 ) : (

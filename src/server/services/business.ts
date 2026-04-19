@@ -1,6 +1,25 @@
-import { MembershipRole, OnboardingStep, SubscriptionStatus } from "@/generated/prisma/enums";
-import { prisma } from "@/lib/prisma";
+import { randomUUID } from "crypto";
+import { MembershipRole, OnboardingStep, ProfessionalStatus, SubscriptionStatus } from "@/lib/domain-enums";
+import { getFirebaseAdminAuth, getFirebaseAdminDb } from "@/lib/firebase-admin";
 import { slugify } from "@/lib/utils";
+import {
+  getAvailabilitiesForBusinessFromFirestore,
+  getBusinessSettingsFromFirestore,
+  getDiscoverableBusinessesFromFirestore,
+  getPrimaryMembershipFromFirestore,
+  getProfessionalsForBusinessFromFirestore,
+  getPublicBusinessBySlugFromFirestore,
+  getServicesForBusinessFromFirestore,
+  getUserByIdFromFirestore,
+} from "@/server/services/firestore-read";
+import { getPlanByCode } from "@/server/services/plan-catalog";
+import {
+  syncBusinessDocument,
+  syncBusinessSubscriptionSummary,
+  syncMembershipDocument,
+  syncProfessionalDocument,
+  syncUserDocument,
+} from "@/server/services/firebase-sync";
 
 type GeocodableBusinessAddress = {
   addressLine1?: string | null;
@@ -80,14 +99,16 @@ export async function generateUniqueBusinessSlug(name: string) {
   const base = slugify(name) || "agenda";
   let candidate = base;
   let suffix = 1;
+  const db = getFirebaseAdminDb();
 
   while (true) {
-    const existing = await prisma.business.findUnique({
-      where: { slug: candidate },
-      select: { id: true },
-    });
+    const [businesses, professionals, services] = await Promise.all([
+      db.collection("businesses").where("slug", "==", candidate).limit(1).get(),
+      db.collection("professionals").where("slug", "==", candidate).limit(1).get(),
+      db.collection("services").where("slug", "==", candidate).limit(1).get(),
+    ]);
 
-    if (!existing) {
+    if (businesses.empty && professionals.empty && services.empty) {
       return candidate;
     }
 
@@ -97,21 +118,7 @@ export async function generateUniqueBusinessSlug(name: string) {
 }
 
 export async function getPrimaryMembership(userId: string) {
-  return prisma.membership.findFirst({
-    where: { userId },
-    orderBy: { createdAt: "asc" },
-    include: {
-      business: {
-        include: {
-          subscriptions: {
-            include: { plan: true },
-            orderBy: { createdAt: "desc" },
-            take: 1,
-          },
-        },
-      },
-    },
-  });
+  return getPrimaryMembershipFromFirestore(userId);
 }
 
 export async function createBusinessForUser(input: {
@@ -119,63 +126,94 @@ export async function createBusinessForUser(input: {
   businessName: string;
   userName: string;
   userEmail: string;
+  userImage?: string | null;
+  userPhone?: string | null;
 }) {
+  const businessId = randomUUID();
+  const professionalId = randomUUID();
   const slug = await generateUniqueBusinessSlug(input.businessName);
-  const starterPlan = await prisma.plan.findUnique({
-    where: { code: "STARTER" },
-  });
+  const professionalSlug = await generateUniqueBusinessSlug(
+    `${slug}-${input.userName || "profissional"}`,
+  );
+  const starterPlan = getPlanByCode("STARTER");
+  const now = new Date();
+  const trialEnd = starterPlan?.trialDays
+    ? new Date(now.getTime() + starterPlan.trialDays * 24 * 60 * 60 * 1000)
+    : null;
 
-  return prisma.$transaction(async (tx) => {
-    const business = await tx.business.create({
-      data: {
-        name: input.businessName,
-        slug,
-        category: "OTHER",
-        status: "DRAFT",
-        onboardingStep: OnboardingStep.BUSINESS,
-        email: input.userEmail,
-      },
-    });
+  await Promise.all([
+    syncUserDocument({
+      id: input.userId,
+      email: input.userEmail,
+      name: input.userName,
+      image: input.userImage ?? null,
+      phone: input.userPhone ?? null,
+    }),
+    syncBusinessDocument({
+      id: businessId,
+      name: input.businessName,
+      slug,
+      category: "OTHER",
+      status: "DRAFT",
+      onboardingStep: OnboardingStep.BUSINESS,
+      email: input.userEmail,
+      publicBookingEnabled: false,
+      publicBookingPaused: false,
+      indexable: true,
+      timezone: "America/Sao_Paulo",
+    }),
+    syncMembershipDocument({
+      businessId,
+      userId: input.userId,
+      role: MembershipRole.OWNER,
+    }),
+    syncProfessionalDocument({
+      id: professionalId,
+      businessId,
+      displayName: input.userName.trim() || input.businessName,
+      publicDisplayName: input.userName.trim() || input.businessName,
+      email: input.userEmail,
+      slug: professionalSlug,
+      status: ProfessionalStatus.ACTIVE,
+      acceptsOnlineBookings: true,
+      sortOrder: 0,
+      serviceIds: [],
+    }),
+  ]);
 
-    await tx.membership.create({
-      data: {
-        businessId: business.id,
-        userId: input.userId,
-        role: MembershipRole.OWNER,
-      },
-    });
-
-    await tx.professional.create({
-      data: {
-        businessId: business.id,
-        displayName: input.userName.trim() || input.businessName,
-        publicDisplayName: input.userName.trim() || input.businessName,
-        email: input.userEmail,
-        slug: await generateUniqueBusinessSlug(`${business.slug}-${input.userName || "profissional"}`),
-      },
-    });
-
-    if (starterPlan) {
-      const now = new Date();
-      const trialEnd = new Date(now.getTime() + starterPlan.trialDays * 24 * 60 * 60 * 1000);
-
-      await tx.subscription.create({
-        data: {
-          businessId: business.id,
-          planId: starterPlan.id,
-          provider: "MERCADOPAGO",
-          status: starterPlan.trialDays > 0 ? SubscriptionStatus.TRIALING : SubscriptionStatus.ACTIVE,
-          billingInterval: "MONTHLY",
-          trialStart: starterPlan.trialDays > 0 ? now : null,
-          trialEnd: starterPlan.trialDays > 0 ? trialEnd : null,
-          currentPeriodStart: now,
-          currentPeriodEnd: starterPlan.trialDays > 0 ? trialEnd : now,
+  if (starterPlan) {
+    await syncBusinessSubscriptionSummary({
+      businessId,
+      subscription: {
+        id: randomUUID(),
+        status:
+          starterPlan.trialDays > 0 ? SubscriptionStatus.TRIALING : SubscriptionStatus.ACTIVE,
+        billingInterval: "MONTHLY",
+        providerSubscriptionId: null,
+        currentPeriodStart: now.toISOString(),
+        currentPeriodEnd: (trialEnd ?? now).toISOString(),
+        trialEnd: trialEnd?.toISOString() ?? null,
+        cancelAtPeriodEnd: false,
+        newBookingsBlockedAt: null,
+        plan: {
+          id: starterPlan.id,
+          code: starterPlan.code,
+          name: starterPlan.name,
+          maxProfessionals: starterPlan.maxProfessionals,
+          maxServices: starterPlan.maxServices,
+          maxMonthlyAppointments: starterPlan.maxMonthlyAppointments,
+          fullDataExportEnabled: starterPlan.fullDataExportEnabled,
+          whatsappEnabled: starterPlan.whatsappEnabled,
         },
-      });
-    }
+      },
+    }).catch(() => undefined);
+  }
 
-    return business;
-  });
+  return {
+    id: businessId,
+    name: input.businessName,
+    slug,
+  };
 }
 
 export async function ensureDefaultProfessionalForBusiness(input: {
@@ -183,175 +221,63 @@ export async function ensureDefaultProfessionalForBusiness(input: {
   businessSlug: string;
   userId: string;
 }) {
-  const existingProfessional = await prisma.professional.findFirst({
-    where: {
-      businessId: input.businessId,
-      deletedAt: null,
-    },
-    select: {
-      id: true,
-    },
-  });
+  const professionals = await getProfessionalsForBusinessFromFirestore(input.businessId);
+  const existingProfessional = professionals.find((professional) => professional.status !== "ARCHIVED");
 
   if (existingProfessional) {
-    return existingProfessional;
+    return { id: existingProfessional.id };
   }
 
-  const user = await prisma.user.findUnique({
-    where: { id: input.userId },
-    select: {
-      name: true,
-      email: true,
-    },
-  });
+  const firestoreUser = await getUserByIdFromFirestore(input.userId).catch(() => null);
+  const authUser = firestoreUser
+    ? null
+    : await getFirebaseAdminAuth()
+        .getUser(input.userId)
+        .catch(() => null);
 
-  return prisma.professional.create({
-    data: {
-      businessId: input.businessId,
-      displayName: user?.name?.trim() || "Profissional principal",
-      publicDisplayName: user?.name?.trim() || "Profissional principal",
-      email: user?.email ?? null,
-      slug: await generateUniqueBusinessSlug(`${input.businessSlug}-${user?.name || "profissional"}`),
-    },
-    select: {
-      id: true,
-    },
-  });
+  const displayName =
+    firestoreUser?.name?.trim() ||
+    authUser?.displayName?.trim() ||
+    "Profissional principal";
+  const email = firestoreUser?.email ?? authUser?.email ?? null;
+  const professionalId = randomUUID();
+
+  await syncProfessionalDocument({
+    id: professionalId,
+    businessId: input.businessId,
+    displayName,
+    publicDisplayName: displayName,
+    email,
+    slug: await generateUniqueBusinessSlug(`${input.businessSlug}-${displayName}`),
+    status: ProfessionalStatus.ACTIVE,
+    acceptsOnlineBookings: true,
+    sortOrder: 0,
+    serviceIds: [],
+  }).catch(() => undefined);
+
+  return { id: professionalId };
 }
 
 export async function getPublicBusinessBySlug(slug: string) {
-  return prisma.business.findFirst({
-    where: {
-      slug,
-      deletedAt: null,
-      indexable: true,
-    },
-    include: {
-      services: {
-        where: { isActive: true, deletedAt: null },
-        orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
-        include: {
-          variants: {
-            where: { isActive: true, deletedAt: null },
-            orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
-          },
-        },
-      },
-      professionals: {
-        where: { status: "ACTIVE", deletedAt: null, acceptsOnlineBookings: true },
-        orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
-        include: {
-          services: {
-            select: {
-              serviceId: true,
-            },
-          },
-          availabilities: {
-            where: { isActive: true },
-            orderBy: [{ dayOfWeek: "asc" }, { startMinutes: "asc" }],
-            select: {
-              id: true,
-              dayOfWeek: true,
-              startMinutes: true,
-              endMinutes: true,
-              slotIntervalMinutes: true,
-            },
-          },
-        },
-      },
-      reviews: {
-        where: { isPublic: true, status: "PUBLISHED" },
-        orderBy: { publishedAt: "desc" },
-        take: 6,
-      },
-      subscriptions: {
-        orderBy: { createdAt: "desc" },
-        take: 1,
-        include: { plan: true },
-      },
-      locations: {
-        where: { deletedAt: null },
-        orderBy: { isPrimary: "desc" },
-      },
-    },
-  });
+  return getPublicBusinessBySlugFromFirestore(slug);
 }
 
 export async function getDiscoverableBusinesses(limit = 36) {
-  const businesses = await prisma.business.findMany({
-    where: {
-      deletedAt: null,
-      indexable: true,
-      publicBookingEnabled: true,
-      publicBookingPaused: false,
-      status: "ACTIVE",
-    },
-    orderBy: [{ createdAt: "desc" }],
-    take: limit,
-    select: {
-      id: true,
-      name: true,
-      slug: true,
-      category: true,
-      description: true,
-      addressLine1: true,
-      city: true,
-      neighborhood: true,
-      state: true,
-      postalCode: true,
-      country: true,
-      latitude: true,
-      longitude: true,
-      logoUrl: true,
-      coverImageUrl: true,
-      brandPrimaryColor: true,
-      phone: true,
-      professionals: {
-        where: {
-          status: "ACTIVE",
-          deletedAt: null,
-          acceptsOnlineBookings: true,
-        },
-        select: {
-          id: true,
-        },
-      },
-      services: {
-        where: {
-          isActive: true,
-          deletedAt: null,
-        },
-        orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
-        take: 4,
-        select: {
-          id: true,
-          name: true,
-          priceCents: true,
-          durationMinutes: true,
-        },
-      },
-      reviews: {
-        where: {
-          isPublic: true,
-          status: "PUBLISHED",
-        },
-        select: {
-          id: true,
-          rating: true,
-        },
-      },
-    },
-  });
+  return getDiscoverableBusinessesFromFirestore(limit);
+}
 
-  return businesses.map((business) => ({
-    ...business,
-    latitude: business.latitude ? Number(business.latitude) : null,
-    longitude: business.longitude ? Number(business.longitude) : null,
-    reviewCount: business.reviews.length,
-    averageRating: business.reviews.length
-      ? business.reviews.reduce((sum, review) => sum + review.rating, 0) / business.reviews.length
-      : null,
-    professionalsCount: business.professionals.length,
-    addressLabel: buildBusinessAddressLabel(business),
-  }));
+export async function getBusinessSettings(businessId: string) {
+  return getBusinessSettingsFromFirestore(businessId);
+}
+
+export async function getServicesForBusiness(businessId: string) {
+  return getServicesForBusinessFromFirestore(businessId);
+}
+
+export async function getProfessionalsForBusiness(businessId: string) {
+  return getProfessionalsForBusinessFromFirestore(businessId);
+}
+
+export async function getAvailabilitiesForBusiness(businessId: string) {
+  return getAvailabilitiesForBusinessFromFirestore(businessId);
 }

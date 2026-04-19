@@ -1,35 +1,23 @@
 import { formatInTimeZone } from "date-fns-tz";
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import {
+  getAppointmentStatusBreakdownFromFirestore,
+  getAppointmentsForBusinessFromFirestore,
+} from "@/server/services/firestore-read";
 import { getCurrentMembership } from "@/server/services/me";
 
 export const dynamic = "force-dynamic";
 
 async function buildPayload(businessId: string, timezone: string) {
   const [recentAppointments, alertCounts] = await Promise.all([
-    prisma.appointment.findMany({
-      where: {
-        businessId,
-      },
-      orderBy: { createdAt: "desc" },
-      take: 5,
-      select: {
-        id: true,
-        customerNameSnapshot: true,
-        serviceNameSnapshot: true,
-        status: true,
-        startsAtUtc: true,
-      },
-    }),
-    prisma.appointment.groupBy({
-      by: ["status"],
-      where: {
-        businessId,
-        createdAt: {
-          gte: new Date(Date.now() - 1000 * 60 * 60 * 24),
-        },
-      },
-      _count: { status: true },
+    getAppointmentsForBusinessFromFirestore(businessId).then((items) =>
+      [...items]
+        .sort((left, right) => right.startsAtUtc.getTime() - left.startsAtUtc.getTime())
+        .slice(0, 5),
+    ),
+    getAppointmentStatusBreakdownFromFirestore({
+      businessId,
+      createdAfter: new Date(Date.now() - 1000 * 60 * 60 * 24),
     }),
   ]);
 
